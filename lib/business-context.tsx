@@ -10,15 +10,17 @@ export interface Business {
   name:       string;
   businessId: string;   // human-readable code e.g. "finbuy-main"
   createdAt:  Date;
+  logoUrl:    string | null; // receipt logo, set from Settings
 }
 
 interface BusinessContextType {
-  businesses:        Business[];
-  activeBusiness:    Business | null;
-  setActiveBusiness: (b: Business) => void;
-  addBusiness:       (name: string, businessId: string) => Promise<void>;
-  updateBusiness:    (id: string, name: string, businessId: string) => Promise<void>;
-  loading:           boolean;
+  businesses:         Business[];
+  activeBusiness:     Business | null;
+  setActiveBusiness:  (b: Business) => void;
+  addBusiness:        (name: string, businessId: string) => Promise<void>;
+  updateBusiness:     (id: string, name: string, businessId: string) => Promise<void>;
+  updateBusinessLogo: (id: string, logoUrl: string | null) => Promise<void>;
+  loading:            boolean;
 }
 
 const BusinessContext = createContext<BusinessContextType | null>(null);
@@ -62,6 +64,7 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
           name:       (d.data().name       ?? '') as string,
           businessId: (d.data().businessId ?? '') as string,
           createdAt:  d.data().createdAt?.toDate() || new Date(),
+          logoUrl:    (d.data().logoUrl ?? null) as string | null,
         }))
         .filter((b) => b.id && b.name && b.businessId); // drop broken docs
 
@@ -99,16 +102,26 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Dedicated updater so the logo lives in the same shared state as everything
+  // else — no more component-local "override" maps that reset on reload.
+  const updateBusinessLogo = async (id: string, logoUrl: string | null) => {
+    await updateDoc(doc(db, 'businesses', id), { logoUrl });
+    setBusinesses((prev) =>
+      prev.map((b) => b.id === id ? { ...b, logoUrl } : b)
+    );
+    setActiveState((prev) => prev?.id === id ? { ...prev, logoUrl } : prev);
+  };
+
   const addBusiness = async (name: string, businessId: string) => {
     if (!uid) throw new Error('Not authenticated');
-    const ref    = await addDoc(collection(db, 'businesses'), { name, businessId, createdAt: new Date(), userId: uid });
-    const newBiz: Business = { id: ref.id, name, businessId, createdAt: new Date() };
+    const ref    = await addDoc(collection(db, 'businesses'), { name, businessId, createdAt: new Date(), userId: uid, logoUrl: null });
+    const newBiz: Business = { id: ref.id, name, businessId, createdAt: new Date(), logoUrl: null };
     setBusinesses((prev) => [...prev, newBiz]);
     setActiveBusiness(newBiz); // always activate the newly created business
   };
 
   return (
-    <BusinessContext.Provider value={{ businesses, activeBusiness, setActiveBusiness, addBusiness, updateBusiness, loading }}>
+    <BusinessContext.Provider value={{ businesses, activeBusiness, setActiveBusiness, addBusiness, updateBusiness, updateBusinessLogo, loading }}>
       {children}
     </BusinessContext.Provider>
   );

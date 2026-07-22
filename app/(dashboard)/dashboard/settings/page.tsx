@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useBusiness } from '@/lib/business-context';
+import { supabase } from '@/lib/supabase';
 import {
   User, Phone, Lock, Save, Eye, EyeOff,
   CheckCircle, AlertCircle, Loader2, ShieldCheck,
   KeyRound, Bell, Building2, Hash, Edit2, X,
+  ImageIcon, UploadCloud, Trash2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -77,10 +79,173 @@ function Toast({ msg, type }: { msg: string; type: 'success' | 'error' }) {
   );
 }
 
+const MAX_LOGO_BYTES = 2 * 1024 * 1024; // 2MB
+
+// ── Dedicated logo uploader (drag & drop, visible affordance, own error/progress state) ──
+function LogoUploader({
+  bizId,
+  bizName,
+  logoUrl,
+  onUploaded,
+  onRemoved,
+}: {
+  bizId: string;
+  bizName: string;
+  logoUrl: string | null;
+  onUploaded: (url: string) => Promise<void>;
+  onRemoved: () => Promise<void>;
+}) {
+  const [status, setStatus] = useState<'idle' | 'uploading' | 'removing'>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [localPreview, setLocalPreview] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const preview = localPreview || logoUrl;
+
+  const validate = (file: File) => {
+    if (!file.type.startsWith('image/')) return 'Please choose an image file (PNG, JPG, or SVG).';
+    if (file.size > MAX_LOGO_BYTES) return 'That file is too big — logos must be under 2MB.';
+    return null;
+  };
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    const err = validate(file);
+    if (err) { setError(err); return; }
+
+    setError(null);
+    setLocalPreview(URL.createObjectURL(file));
+    setStatus('uploading');
+    try {
+      const ext = file.name.split('.').pop() || 'png';
+      const filePath = `${bizId}/logo-${Date.now()}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('business-logos')
+        .upload(filePath, file, { upsert: true, contentType: file.type });
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage.from('business-logos').getPublicUrl(filePath);
+      const url = urlData.publicUrl;
+
+      await onUploaded(url); // writes Firestore + updates shared business-context state
+
+    } catch (err: any) {
+      // Surface the real error in the console — the toast message alone often
+      // isn't enough to tell a Storage RLS rejection from a missing bucket.
+      console.error('Logo upload failed:', err);
+      setError(err?.message || 'Upload failed. Please try again.');
+      setLocalPreview(null);
+    } finally {
+      setStatus('idle');
+    }
+  };
+
+  const handleRemove = async () => {
+    setStatus('removing');
+    setError(null);
+    try {
+      await onRemoved(); // writes Firestore + updates shared business-context state
+      setLocalPreview(null);
+    } catch (err: any) {
+      console.error('Logo remove failed:', err);
+      setError(err?.message || 'Could not remove logo. Please try again.');
+    } finally {
+      setStatus('idle');
+    }
+  };
+
+  const busy = status !== 'idle';
+
+  return (
+    <div className="px-3.5 pb-3.5 pt-3 border-t border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/30">
+      <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+        <ImageIcon className="w-3 h-3" /> Receipt Logo
+      </p>
+
+      <div className="flex items-start gap-3">
+        {/* Preview swatch — always visible, not hidden behind hover */}
+        <div className="w-16 h-16 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex-shrink-0 flex items-center justify-center overflow-hidden relative"
+          style={{
+            backgroundImage: preview
+              ? undefined
+              : 'linear-gradient(45deg, #eee 25%, transparent 25%), linear-gradient(-45deg, #eee 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #eee 75%), linear-gradient(-45deg, transparent 75%, #eee 75%)',
+            backgroundSize: '8px 8px',
+            backgroundPosition: '0 0, 0 4px, 4px -4px, -4px 0px',
+          }}
+        >
+          {preview ? (
+            <img src={preview} alt={`${bizName} logo`} className="w-full h-full object-contain" />
+          ) : (
+            <span className="text-lg font-black text-gray-300 dark:text-gray-600">{bizName.charAt(0)}</span>
+          )}
+          {busy && (
+            <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+              <Loader2 className="w-5 h-5 text-white animate-spin" />
+            </div>
+          )}
+        </div>
+
+        {/* Dropzone + actions */}
+        <div className="flex-1 min-w-0">
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => handleFile(e.target.files?.[0])}
+          />
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              handleFile(e.dataTransfer.files?.[0]);
+            }}
+            disabled={busy}
+            className={`w-full flex items-center justify-center gap-2 h-16 rounded-xl border-2 border-dashed text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              dragOver
+                ? 'border-green-500 bg-green-500/10 text-green-600'
+                : 'border-gray-300 dark:border-gray-700 text-gray-400 hover:border-green-400 hover:text-green-500 hover:bg-green-500/5'
+            }`}
+          >
+            <UploadCloud className="w-4 h-4" />
+            {status === 'uploading' ? 'Uploading…' : 'Drag & drop, or click to choose an image'}
+          </button>
+
+          <div className="flex items-center justify-between mt-1.5">
+            <p className="text-[10px] text-gray-400">PNG or JPG, up to 2MB</p>
+            {preview && (
+              <button
+                type="button"
+                onClick={handleRemove}
+                disabled={busy}
+                className="flex items-center gap-1 text-[10px] font-bold text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
+              >
+                <Trash2 className="w-3 h-3" /> {status === 'removing' ? 'Removing…' : 'Remove logo'}
+              </button>
+            )}
+          </div>
+
+          {error && (
+            <p className="text-[11px] font-semibold text-red-500 mt-1.5 flex items-center gap-1">
+              <AlertCircle className="w-3 h-3 flex-shrink-0" /> {error}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const { user, updateProfile, changePassword } = useAuth();
-  const { businesses, updateBusiness } = useBusiness();
+  const { businesses, updateBusiness, updateBusinessLogo } = useBusiness();
 
   // ── Profile ────────────────────────────────────────────────────────────
   const [name,          setName]          = useState('');
@@ -99,7 +264,7 @@ export default function SettingsPage() {
   const [savingPwd,   setSavingPwd]   = useState(false);
 
   // ── Business editing ───────────────────────────────────────────────────
-  const [editingBizId, setEditingBizId] = useState<string | null>(null); // Firestore doc id being edited
+  const [editingBizId, setEditingBizId] = useState<string | null>(null);
   const [bizName,      setBizName]      = useState('');
   const [bizCode,      setBizCode]      = useState('');
   const [bizMsg,       setBizMsg]       = useState<{ text: string; type: 'success' | 'error' } | null>(null);
@@ -157,7 +322,6 @@ export default function SettingsPage() {
     if (!bizCode.trim()) { flash(setBizMsg, 'Business ID cannot be empty.', 'error'); return; }
     if (!editingBizId)   return;
 
-    // Check for duplicate businessId (excluding current)
     const isDupe = businesses.some(
       (b) => b.id !== editingBizId && b.businessId.toLowerCase() === bizCode.trim().toLowerCase()
     );
@@ -269,7 +433,7 @@ export default function SettingsPage() {
             <CardHeader
               icon={<Building2 className="w-4 h-4" />}
               title="Your Businesses"
-              sub="Edit the name or ID of any registered business"
+              sub="Edit the name, ID, or receipt logo of any registered business"
             />
             <div className="p-5 space-y-3">
 
@@ -289,13 +453,17 @@ export default function SettingsPage() {
 
                       {/* Business row */}
                       <div className="flex items-center gap-3 p-3.5">
-                        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white font-black text-sm flex-shrink-0">
-                          {biz.name.charAt(0)}
+                        <div className="w-9 h-9 rounded-lg overflow-hidden flex items-center justify-center bg-gradient-to-br from-green-400 to-green-600 text-white font-black text-sm flex-shrink-0">
+                          {biz.logoUrl
+                            ? <img src={biz.logoUrl} alt={`${biz.name} logo`} className="w-full h-full object-cover" />
+                            : biz.name.charAt(0)}
                         </div>
+
                         <div className="flex-1 min-w-0">
                           <p className="font-bold text-gray-900 dark:text-white text-sm truncate">{biz.name}</p>
                           <p className="text-[11px] font-mono text-gray-400">{biz.businessId}</p>
                         </div>
+
                         <button
                           onClick={() => editingBizId === biz.id ? cancelEditBiz() : startEditBiz(biz)}
                           className={`flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-bold transition-all ${
@@ -308,6 +476,15 @@ export default function SettingsPage() {
                             : <><Edit2 className="w-3.5 h-3.5" /> Edit</>}
                         </button>
                       </div>
+
+                      {/* Always-visible logo uploader — no more hover-only hidden button */}
+                      <LogoUploader
+                        bizId={biz.id}
+                        bizName={biz.name}
+                        logoUrl={biz.logoUrl}
+                        onUploaded={(url) => updateBusinessLogo(biz.id, url)}
+                        onRemoved={() => updateBusinessLogo(biz.id, null)}
+                      />
 
                       {/* Inline edit form */}
                       <AnimatePresence>

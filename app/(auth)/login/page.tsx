@@ -6,19 +6,21 @@ import { useAuth } from '@/lib/auth-context';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import {
-  Loader2, Mail, Lock, Hash, Store, ArrowRight,
+  Loader2, Mail, Lock, Hash, Store, ArrowRight, ArrowLeft,
   ShieldCheck, Users, Eye, EyeOff,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { saveStaffSession } from '@/lib/staff-auth';
 
-type Mode = 'admin' | 'staff';
+type Mode = 'select' | 'admin' | 'staff';
 
 export default function LoginPage() {
   const { login, user } = useAuth();
   const router    = useRouter();
 
-  const [mode,           setMode]           = useState<Mode>('admin');
+  // Start on the "choose your type" screen. The actual login form
+  // only appears after the user picks admin or staff.
+  const [mode,           setMode]           = useState<Mode>('select');
   const [loading,        setLoading]        = useState(false);
   const [error,          setError]          = useState('');
   const [showPwd,        setShowPwd]        = useState(false);
@@ -88,7 +90,15 @@ export default function LoginPage() {
     } finally { setLoading(false); }
   };
 
-  const switchMode = (m: Mode) => { setMode(m); setError(''); };
+  // Picking a type takes you TO that login form (like navigating to a
+  // dedicated page). Going back resets the form state for that type.
+  const chooseMode = (m: Exclude<Mode, 'select'>) => { setError(''); setMode(m); };
+  const goBack      = () => {
+    setError('');
+    setEmail(''); setPassword('');
+    setBizName(''); setBizId('');
+    setMode('select');
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex items-center justify-center p-4">
@@ -104,56 +114,48 @@ export default function LoginPage() {
             <ShieldCheck className="w-7 h-7 text-white" />
           </div>
           <h1 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight">Welcome back</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Sign in to your dashboard</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {mode === 'select' ? 'How would you like to sign in?' : 'Sign in to your dashboard'}
+          </p>
         </motion.div>
 
         {/* ── CARD ── */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}
           className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-xl overflow-hidden">
 
-          {/* Tab toggle */}
-          <div className="flex border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/60">
-            {([
-              { key: 'admin', label: 'Admin',       icon: ShieldCheck },
-              { key: 'staff', label: 'Staff Login',  icon: Users       },
-            ] as { key: Mode; label: string; icon: any }[]).map(({ key, label, icon: Icon }) => (
-              <button key={key} onClick={() => switchMode(key)}
-                className={`flex-1 flex items-center justify-center gap-2 py-3.5 text-sm font-bold transition-all duration-200 relative ${
-                  mode === key
-                    ? 'text-gray-900 dark:text-white bg-white dark:bg-gray-900'
-                    : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
-                }`}>
-                <Icon className="w-3.5 h-3.5" />
-                {label}
-                {mode === key && (
-                  <motion.div layoutId="tabLine"
-                    className="absolute bottom-0 left-0 right-0 h-[2px] bg-green-500"
-                    transition={{ type: 'spring', stiffness: 400, damping: 30 }} />
-                )}
-              </button>
-            ))}
-          </div>
+          <AnimatePresence mode="wait">
 
-          <div className="p-6">
-            {/* Subtitle */}
-            <AnimatePresence mode="wait">
-              <motion.p key={mode} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                className="text-xs text-gray-400 mb-5 text-center">
-                {mode === 'admin'
-                  ? 'Full access — manage inventory, reports & settings'
-                  : 'Staff access — record sales for your assigned business'}
-              </motion.p>
-            </AnimatePresence>
+            {/* ── STEP 1: CHOOSE USER TYPE ── */}
+            {mode === 'select' && (
+              <motion.div key="select"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                transition={{ duration: 0.18 }} className="p-6 space-y-3">
 
-            <AnimatePresence mode="wait">
+                <ChoiceButton
+                  icon={<ShieldCheck className="w-5 h-5" />}
+                  title="Admin"
+                  subtitle="Full access — manage inventory, reports & settings"
+                  onClick={() => chooseMode('admin')}
+                />
+                <ChoiceButton
+                  icon={<Users className="w-5 h-5" />}
+                  title="Staff Login"
+                  subtitle="Record sales for your assigned business"
+                  onClick={() => chooseMode('staff')}
+                />
+              </motion.div>
+            )}
 
-              {/* ── ADMIN FORM ── */}
-              {mode === 'admin' && (
-                <motion.form key="admin"
-                  initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 16 }} transition={{ duration: 0.18 }}
-                  onSubmit={handleAdminLogin} className="space-y-4">
+            {/* ── STEP 2: ADMIN FORM ── */}
+            {mode === 'admin' && (
+              <motion.div key="admin"
+                initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -16 }} transition={{ duration: 0.18 }}
+                className="p-6">
 
+                <BackLink onClick={goBack} />
+
+                <form onSubmit={handleAdminLogin} className="space-y-4">
                   <Field label="Email Address" icon={<Mail className="w-3.5 h-3.5" />}>
                     <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
                       placeholder="you@example.com" required disabled={loading}
@@ -176,16 +178,20 @@ export default function LoginPage() {
 
                   <ErrorBox error={error} />
                   <SubmitBtn loading={loading} label="Sign in" />
-                </motion.form>
-              )}
+                </form>
+              </motion.div>
+            )}
 
-              {/* ── STAFF FORM ── */}
-              {mode === 'staff' && (
-                <motion.form key="staff"
-                  initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -16 }} transition={{ duration: 0.18 }}
-                  onSubmit={handleStaffLogin} className="space-y-4">
+            {/* ── STEP 2: STAFF FORM ── */}
+            {mode === 'staff' && (
+              <motion.div key="staff"
+                initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -16 }} transition={{ duration: 0.18 }}
+                className="p-6">
 
+                <BackLink onClick={goBack} />
+
+                <form onSubmit={handleStaffLogin} className="space-y-4">
                   <Field label="Business Name" icon={<Store className="w-3.5 h-3.5" />}>
                     <input type="text" value={bizName} onChange={(e) => setBizName(e.target.value)}
                       placeholder="e.g. Kumasi Branch" required disabled={loading}
@@ -202,11 +208,11 @@ export default function LoginPage() {
 
                   <ErrorBox error={error} />
                   <SubmitBtn loading={loading} label="Access Sales Dashboard" />
-                </motion.form>
-              )}
+                </form>
+              </motion.div>
+            )}
 
-            </AnimatePresence>
-          </div>
+          </AnimatePresence>
         </motion.div>
 
         <p className="text-center text-xs text-gray-400 mt-6">
@@ -239,6 +245,41 @@ export default function LoginPage() {
         .input-base::placeholder { color: rgb(156 163 175); font-weight: 400; }
       `}</style>
     </div>
+  );
+}
+
+function ChoiceButton({ icon, title, subtitle, onClick }: {
+  icon: React.ReactNode; title: string; subtitle: string; onClick: () => void;
+}) {
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      whileTap={{ scale: 0.98 }}
+      whileHover={{ scale: 1.01 }}
+      className="w-full text-left flex items-center gap-4 p-4 rounded-xl border-2 border-gray-200 dark:border-gray-800 hover:border-green-500 dark:hover:border-green-500 bg-gray-50 dark:bg-gray-800/50 transition-colors group"
+    >
+      <div className="w-10 h-10 rounded-xl bg-green-500/10 text-green-600 dark:text-green-400 flex items-center justify-center flex-shrink-0 group-hover:bg-green-500 group-hover:text-white transition-colors">
+        {icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="font-bold text-sm text-gray-900 dark:text-white">{title}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{subtitle}</p>
+      </div>
+      <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-green-500 flex-shrink-0 transition-colors" />
+    </motion.button>
+  );
+}
+
+function BackLink({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 mb-5 transition-colors"
+    >
+      <ArrowLeft className="w-3.5 h-3.5" /> Back
+    </button>
   );
 }
 

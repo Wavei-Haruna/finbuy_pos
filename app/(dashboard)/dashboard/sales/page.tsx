@@ -13,9 +13,9 @@ import { Product, SalesRecord } from '@/lib/types';
 import { ReceiptModal } from './components/ReceiptModal';
 import {
   ShoppingCart, Calendar, Loader2, TrendingUp,
-  Receipt, Package, BarChart3, ChevronDown,
+  Receipt, Package, BarChart3, ChevronDown, Trash2, X, Check,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { SaleForm } from './components/salesForm';
 
 interface SaleWithProduct extends SalesRecord {
@@ -25,11 +25,20 @@ interface SaleWithProduct extends SalesRecord {
 // Generate receipt number
 const genReceiptNo = () => `RCP-${Date.now().toString(36).toUpperCase()}`;
 
+// How many stock units a sale consumed — falls back to a recompute if the
+// field isn't on the record (older sales recorded before unitsConsumed existed).
+const unitsConsumedFor = (s: SaleWithProduct) =>
+  (s as any).unitsConsumed ?? (s.saleType === 'box' ? s.quantity * ((s as any).boxQty ?? 1) : s.quantity);
+
 
 
 export default function SalesPage() {
   const { user }           = useAuth();
   const { activeBusiness } = useBusiness();
+
+  // Only an authenticated admin (Firebase auth user) can delete sales —
+  // staff sign in via a business session and have no `user` here.
+  const isAdmin = !!user;
 
   const [products, setProducts]       = useState<Product[]>([]);
   const [sales,        setSales]        = useState<SaleWithProduct[]>([]);    // paginated display
@@ -46,6 +55,10 @@ export default function SalesPage() {
   const [receiptData, setReceiptData]   = useState<any>(null);
   const [sendingSMS, setSendingSMS]     = useState(false);
   const [smsSent, setSmsSent]           = useState(false);
+
+  // Delete sale
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId,      setDeletingId]      = useState<string | null>(null);
 
   useEffect(() => { if (activeBusiness) fetchData(); }, [activeBusiness]);
 
@@ -179,6 +192,7 @@ export default function SalesPage() {
         notes:        customer.notes,
         businessName: activeBusiness.name,
         businessCode: activeBusiness.businessId,
+        businessLogo: (activeBusiness as any).logoUrl || undefined,
         recordedBy:   user?.name || 'Staff',
         receiptNo,
         date:         new Date(),
@@ -201,6 +215,38 @@ export default function SalesPage() {
       alert(err.message || 'Failed to record sale');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDeleteSale = async (sale: SaleWithProduct) => {
+    if (!isAdmin) return;
+    setDeletingId(sale.id);
+    try {
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'sales', sale.id));
+
+      // Restore the stock this sale consumed, if the product still exists.
+      const prod = products.find((p) => p.id === sale.productId);
+      if (prod) {
+        batch.update(doc(db, 'products', sale.productId), {
+          quantity:    prod.quantity + unitsConsumedFor(sale),
+          lastUpdated: new Date(),
+        });
+      }
+
+      await batch.commit();
+
+      setSales((prev) => prev.filter((s) => s.id !== sale.id));
+      setAllSalesData((prev) => prev.filter((s) => s.id !== sale.id));
+      setProducts((prev) => prev.map((p) =>
+        p.id === sale.productId ? { ...p, quantity: p.quantity + unitsConsumedFor(sale) } : p
+      ));
+      setConfirmDeleteId(null);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to delete sale');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -315,6 +361,9 @@ export default function SalesPage() {
                           {['Product', 'Customer', 'Qty', 'Total', 'By', 'Time'].map((h) => (
                             <th key={h} className="text-left py-3 px-4 text-[10px] font-black uppercase tracking-widest text-gray-400">{h}</th>
                           ))}
+                          {isAdmin && (
+                            <th className="text-right py-3 px-4 text-[10px] font-black uppercase tracking-widest text-gray-400">Actions</th>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50 dark:divide-gray-900">
@@ -346,6 +395,43 @@ export default function SalesPage() {
                                 </div>
                               </div>
                             </td>
+                            {isAdmin && (
+                              <td className="py-3 px-4">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {confirmDeleteId === sale.id ? (
+                                    <>
+                                      <span className="text-[10px] font-bold text-gray-400 mr-1">Delete?</span>
+                                      <button
+                                        onClick={() => handleDeleteSale(sale)}
+                                        disabled={deletingId === sale.id}
+                                        className="w-6 h-6 rounded-lg bg-red-500 hover:bg-red-600 text-white flex items-center justify-center disabled:opacity-50"
+                                        title="Confirm delete"
+                                      >
+                                        {deletingId === sale.id
+                                          ? <Loader2 className="w-3 h-3 animate-spin" />
+                                          : <Check className="w-3 h-3" />}
+                                      </button>
+                                      <button
+                                        onClick={() => setConfirmDeleteId(null)}
+                                        disabled={deletingId === sale.id}
+                                        className="w-6 h-6 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 flex items-center justify-center"
+                                        title="Cancel"
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      onClick={() => setConfirmDeleteId(sale.id)}
+                                      className="w-6 h-6 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-500/10 flex items-center justify-center transition-colors"
+                                      title="Delete sale"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            )}
                           </motion.tr>
                         ))}
                       </tbody>
@@ -365,9 +451,38 @@ export default function SalesPage() {
                           <p className="text-xs text-gray-400 mt-0.5">{sale.customerName} · {sale.customerPhone}</p>
                           <p className="text-[10px] text-gray-400 mt-0.5">{sale.recordedAt.toLocaleDateString()} {sale.recordedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                         </div>
-                        <div className="text-right flex-shrink-0">
+                        <div className="text-right flex-shrink-0 flex flex-col items-end gap-1.5">
                           <p className="font-black text-green-600 dark:text-green-400 text-sm">₵{sale.totalAmount.toLocaleString()}</p>
                           <span className="text-[10px] text-blue-500 font-bold">{sale.quantity} units</span>
+                          {isAdmin && (
+                            confirmDeleteId === sale.id ? (
+                              <div className="flex items-center gap-1 mt-1">
+                                <button
+                                  onClick={() => handleDeleteSale(sale)}
+                                  disabled={deletingId === sale.id}
+                                  className="w-6 h-6 rounded-lg bg-red-500 text-white flex items-center justify-center disabled:opacity-50"
+                                >
+                                  {deletingId === sale.id
+                                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                                    : <Check className="w-3 h-3" />}
+                                </button>
+                                <button
+                                  onClick={() => setConfirmDeleteId(null)}
+                                  disabled={deletingId === sale.id}
+                                  className="w-6 h-6 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-500 flex items-center justify-center"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setConfirmDeleteId(sale.id)}
+                                className="text-gray-300 hover:text-red-500 mt-1"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )
+                          )}
                         </div>
                       </motion.div>
                     ))}
