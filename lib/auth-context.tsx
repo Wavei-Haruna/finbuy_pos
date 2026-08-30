@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const scheduleLogout = () => {
       const now    = new Date();
       const logout = new Date();
-      logout.setHours(23, 0, 0, 0); // 11:00 PM today
+      logout.setHours(23, 59, 0, 0); // 11:00 PM today
       // If it's already past 11pm, schedule for tomorrow
       if (now >= logout) logout.setDate(logout.getDate() + 1);
       const msUntilLogout = logout.getTime() - now.getTime();

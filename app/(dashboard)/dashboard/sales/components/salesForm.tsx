@@ -158,7 +158,7 @@ export function SaleForm({ products, submitting, successMessage, onSubmit }: Sal
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!cart.length || !customer.name) return;
+    if (!cart.length) return;
     await onSubmit(cart, customer, sendSMS);
     setCart([]);
     setCustomer({ name: '', phone: '', notes: '' });
@@ -477,8 +477,10 @@ export function SaleForm({ products, submitting, successMessage, onSubmit }: Sal
         {/* Customer */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-1.5"><User className="w-3 h-3" /> Name *</label>
-            <input type="text" value={customer.name} required onChange={(e) => setCustomer({ ...customer, name: e.target.value })} placeholder="Customer name"
+            <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
+              <User className="w-3 h-3" /> Name <span className="text-[9px] font-normal normal-case ml-1 text-gray-400">optional</span>
+            </label>
+            <input type="text" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} placeholder="Customer name (optional)"
               className="w-full h-11 px-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white font-medium focus:outline-none focus:border-green-500 transition-colors placeholder:text-gray-400" />
           </div>
           <div className="space-y-1.5">
@@ -508,7 +510,7 @@ export function SaleForm({ products, submitting, successMessage, onSubmit }: Sal
           className="w-full px-3.5 py-2.5 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-green-500 transition-colors resize-none placeholder:text-gray-400" />
 
         <motion.button type="submit" whileTap={{ scale: 0.97 }}
-          disabled={submitting || !cart.length || !customer.name}
+          disabled={submitting || !cart.length}
           className="w-full h-12 rounded-xl bg-green-500 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-sm flex items-center justify-center gap-2 transition-colors shadow-lg shadow-green-500/20">
           {submitting
             ? <><Loader2 className="w-4 h-4 animate-spin" /> Recording…</>
@@ -518,3 +520,4 @@ export function SaleForm({ products, submitting, successMessage, onSubmit }: Sal
     </>
   );
 }
+

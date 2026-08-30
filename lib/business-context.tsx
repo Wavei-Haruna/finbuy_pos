@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, addDoc, updateDoc, doc, query, where } from 'firebase/firestore';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where } from 'firebase/firestore';
 
 export interface Business {
   id:         string;   // Firestore doc ID
@@ -16,10 +16,11 @@ export interface Business {
 interface BusinessContextType {
   businesses:         Business[];
   activeBusiness:     Business | null;
-  setActiveBusiness:  (b: Business) => void;
+  setActiveBusiness:  (b: Business | null) => void;
   addBusiness:        (name: string, businessId: string) => Promise<void>;
   updateBusiness:     (id: string, name: string, businessId: string) => Promise<void>;
   updateBusinessLogo: (id: string, logoUrl: string | null) => Promise<void>;
+  deleteBusiness:     (id: string) => Promise<void>;
   loading:            boolean;
 }
 
@@ -84,9 +85,12 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const setActiveBusiness = (b: Business) => {
+  const setActiveBusiness = (b: Business | null) => {
     setActiveState(b);
-    if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, b.id);
+    if (typeof window !== 'undefined') {
+      if (b) localStorage.setItem(STORAGE_KEY, b.id);
+      else localStorage.removeItem(STORAGE_KEY);
+    }
   };
 
   const updateBusiness = async (id: string, name: string, businessId: string) => {
@@ -112,6 +116,24 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
     setActiveState((prev) => prev?.id === id ? { ...prev, logoUrl } : prev);
   };
 
+  // NOTE: this only deletes the business document itself. It does NOT cascade
+  // to that business's products/sales/staff — those will be left in Firestore
+  // with a businessId that no longer resolves to anything. If you want a real
+  // cascade delete (wiping products + sales too), that needs to happen here,
+  // ideally via a batched write or a Cloud Function so a network drop mid-way
+  // can't leave things half-deleted.
+  const deleteBusiness = async (id: string) => {
+    await deleteDoc(doc(db, 'businesses', id));
+
+    setBusinesses((prev) => prev.filter((b) => b.id !== id));
+
+    setActiveState((prev) => (prev?.id === id ? null : prev));
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored === id) localStorage.removeItem(STORAGE_KEY);
+    }
+  };
+
   const addBusiness = async (name: string, businessId: string) => {
     if (!uid) throw new Error('Not authenticated');
     const ref    = await addDoc(collection(db, 'businesses'), { name, businessId, createdAt: new Date(), userId: uid, logoUrl: null });
@@ -121,7 +143,7 @@ export function BusinessProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <BusinessContext.Provider value={{ businesses, activeBusiness, setActiveBusiness, addBusiness, updateBusiness, updateBusinessLogo, loading }}>
+    <BusinessContext.Provider value={{ businesses, activeBusiness, setActiveBusiness, addBusiness, updateBusiness, updateBusinessLogo, deleteBusiness, loading }}>
       {children}
     </BusinessContext.Provider>
   );

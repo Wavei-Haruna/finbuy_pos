@@ -8,7 +8,7 @@ import {
   User, Phone, Lock, Save, Eye, EyeOff,
   CheckCircle, AlertCircle, Loader2, ShieldCheck,
   KeyRound, Bell, Building2, Hash, Edit2, X,
-  ImageIcon, UploadCloud, Trash2,
+  ImageIcon, UploadCloud, Trash2, AlertTriangle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -242,10 +242,95 @@ function LogoUploader({
   );
 }
 
+// ── Delete-business confirmation modal ──────────────────────────────────────
+// Type-to-confirm pattern since this is destructive and can't be undone from the UI.
+function DeleteBusinessModal({
+  biz, onCancel, onConfirm, deleting, error,
+}: {
+  biz: { id: string; name: string; businessId: string };
+  onCancel: () => void;
+  onConfirm: (input: string) => void;
+  deleting: boolean;
+  error: string | null;
+}) {
+  const [input, setInput] = useState('');
+  const matches = input.trim().toLowerCase() === biz.name.trim().toLowerCase();
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === e.currentTarget && !deleting) onCancel(); }}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 12, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 12, scale: 0.97 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+        className="w-full max-w-sm rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-2xl overflow-hidden"
+      >
+        <div className="p-5 space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center flex-shrink-0">
+              <AlertTriangle className="w-5 h-5 text-red-500" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-gray-900 dark:text-white">Delete "{biz.name}"?</h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                This permanently removes the business and cannot be undone. Products, sales history, and staff access tied to it will be affected too.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              Type <span className="text-gray-900 dark:text-white">{biz.name}</span> to confirm
+            </label>
+            <input
+              autoFocus
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              disabled={deleting}
+              placeholder={biz.name}
+              className="w-full h-11 px-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm font-medium focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/10 transition-all disabled:opacity-50"
+            />
+          </div>
+
+          {error && (
+            <p className="text-[11px] font-semibold text-red-500 flex items-center gap-1">
+              <AlertCircle className="w-3 h-3 flex-shrink-0" /> {error}
+            </p>
+          )}
+
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              onClick={onCancel}
+              disabled={deleting}
+              className="flex-1 h-10 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 text-sm font-bold hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <motion.button
+              whileTap={matches ? { scale: 0.97 } : undefined}
+              onClick={() => matches && onConfirm(input)}
+              disabled={!matches || deleting}
+              className="flex-1 h-10 rounded-xl bg-red-500 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold transition-colors flex items-center justify-center gap-2"
+            >
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              {deleting ? 'Deleting…' : 'Delete Business'}
+            </motion.button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const { user, updateProfile, changePassword } = useAuth();
-  const { businesses, updateBusiness, updateBusinessLogo } = useBusiness();
+  const { businesses, activeBusiness, setActiveBusiness, updateBusiness, updateBusinessLogo, deleteBusiness } = useBusiness();
 
   // ── Profile ────────────────────────────────────────────────────────────
   const [name,          setName]          = useState('');
@@ -269,6 +354,11 @@ export default function SettingsPage() {
   const [bizCode,      setBizCode]      = useState('');
   const [bizMsg,       setBizMsg]       = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [savingBiz,    setSavingBiz]    = useState(false);
+
+  // ── Business deletion ──────────────────────────────────────────────────
+  const [deletingBiz, setDeletingBiz]     = useState<{ id: string; name: string; businessId: string } | null>(null);
+  const [deleteError, setDeleteError]     = useState<string | null>(null);
+  const [deletingNow, setDeletingNow]     = useState(false);
 
   useEffect(() => {
     if (user) { setName(user.name || ''); setPhone(user.phone || ''); }
@@ -335,6 +425,32 @@ export default function SettingsPage() {
     } catch (err: any) {
       flash(setBizMsg, err.message || 'Failed to update business.', 'error');
     } finally { setSavingBiz(false); }
+  };
+
+  // ── Business delete ────────────────────────────────────────────────────
+  const handleConfirmDelete = async (_input: string) => {
+    if (!deletingBiz) return;
+    setDeletingNow(true);
+    setDeleteError(null);
+    try {
+      await deleteBusiness(deletingBiz.id);
+
+      // If the deleted business was the active one, hand off to whatever's left.
+      if (activeBusiness?.id === deletingBiz.id) {
+        const next = businesses.find((b) => b.id !== deletingBiz.id) ?? null;
+        setActiveBusiness(next);
+      }
+
+      if (editingBizId === deletingBiz.id) cancelEditBiz();
+
+      setDeletingBiz(null);
+      flash(setBizMsg, `"${deletingBiz.name}" was deleted.`, 'success');
+    } catch (err: any) {
+      console.error('Delete business failed:', err);
+      setDeleteError(err?.message || 'Could not delete this business. Please try again.');
+    } finally {
+      setDeletingNow(false);
+    }
   };
 
   const pwdStrength = (pwd: string) => {
@@ -464,17 +580,28 @@ export default function SettingsPage() {
                           <p className="text-[11px] font-mono text-gray-400">{biz.businessId}</p>
                         </div>
 
-                        <button
-                          onClick={() => editingBizId === biz.id ? cancelEditBiz() : startEditBiz(biz)}
-                          className={`flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-bold transition-all ${
-                            editingBizId === biz.id
-                              ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-red-500'
-                              : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20'
-                          }`}>
-                          {editingBizId === biz.id
-                            ? <><X className="w-3.5 h-3.5" /> Cancel</>
-                            : <><Edit2 className="w-3.5 h-3.5" /> Edit</>}
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => editingBizId === biz.id ? cancelEditBiz() : startEditBiz(biz)}
+                            className={`flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-bold transition-all ${
+                              editingBizId === biz.id
+                                ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-red-500'
+                                : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20'
+                            }`}>
+                            {editingBizId === biz.id
+                              ? <><X className="w-3.5 h-3.5" /> Cancel</>
+                              : <><Edit2 className="w-3.5 h-3.5" /> Edit</>}
+                          </button>
+
+                          <button
+                            onClick={() => { setDeleteError(null); setDeletingBiz(biz); }}
+                            disabled={businesses.length <= 1}
+                            title={businesses.length <= 1 ? "You need at least one business" : "Delete business"}
+                            className="flex items-center justify-center w-8 h-8 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-red-500/10"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
 
                       {/* Always-visible logo uploader — no more hover-only hidden button */}
@@ -521,6 +648,13 @@ export default function SettingsPage() {
                       </AnimatePresence>
                     </motion.div>
                   ))}
+
+                  {businesses.length <= 1 && (
+                    <p className="text-[11px] text-gray-400 flex items-center gap-1.5 pt-1">
+                      <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                      You need at least one business — add another before deleting this one.
+                    </p>
+                  )}
                 </>
               )}
             </div>
@@ -606,6 +740,19 @@ export default function SettingsPage() {
         </motion.div>
 
       </div>
+
+      {/* Delete confirmation modal */}
+      <AnimatePresence>
+        {deletingBiz && (
+          <DeleteBusinessModal
+            biz={deletingBiz}
+            onCancel={() => { if (!deletingNow) { setDeletingBiz(null); setDeleteError(null); } }}
+            onConfirm={handleConfirmDelete}
+            deleting={deletingNow}
+            error={deleteError}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

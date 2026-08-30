@@ -76,19 +76,35 @@ export function ProductForm({ product, onSuccess, onCancel }: ProductFormProps) 
   };
 
   // ── Form state ───────────────────────────────────────────────────────────
+  // Current real stock — this is the number sales have been correctly
+  // decrementing via increment(). Everything else derives from it.
+  const initialQuantity    = product?.quantity   ?? 0;
+  const initialBoxQty      = (product as any)?.boxQty     ?? 12;
+  const initialBoxEnabled  = (product as any)?.boxEnabled ?? false;
+
   const [form, setForm] = useState({
     name:          product?.name          ?? '',
     brand:         product?.brand         ?? '',
     sku:           product?.sku           ?? '',
     category:      product?.category      ?? '',
-    quantity:      product?.quantity      ?? 0,
-    openingBoxes:  (product as any)?.openingBoxes  ?? 0,
-    loosePieces:   (product as any)?.loosePieces   ?? 0,
+    quantity:      initialQuantity,
+    // Derive boxes/loose pieces from the CURRENT quantity — not from the
+    // product's stored openingBoxes/loosePieces fields. Those two fields
+    // are only ever written once, at product-creation time, and are never
+    // updated when sales deduct stock. Pre-filling the edit form from them
+    // meant this screen always showed the original opening count (e.g. "8
+    // boxes") no matter how much had actually sold, and saving the form
+    // would push `quantity` back toward that stale original total —
+    // silently wiping out every sale's deduction. Recomputing from the
+    // live `quantity` keeps this screen (and any save from it) in sync
+    // with reality.
+    openingBoxes:  initialBoxEnabled ? Math.floor(initialQuantity / initialBoxQty) : 0,
+    loosePieces:   initialBoxEnabled ? initialQuantity % initialBoxQty             : 0,
     description:   product?.description   ?? '',
     pieceCost:     (product as any)?.pieceCost     ?? 0,
     piecePrice:    (product as any)?.piecePrice    ?? product?.sellingPrice ?? 0,
-    boxEnabled:    (product as any)?.boxEnabled    ?? false,
-    boxQty:        (product as any)?.boxQty        ?? 12,
+    boxEnabled:    initialBoxEnabled,
+    boxQty:        initialBoxQty,
     boxCost:       (product as any)?.boxCost       ?? 0,
     boxPrice:      (product as any)?.boxPrice      ?? 0,
     lowStockAlert: product?.lowStockAlert ?? 5,

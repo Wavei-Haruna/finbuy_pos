@@ -3,16 +3,18 @@
 import { useEffect, useState, useMemo } from 'react';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import { Product, SalesRecord } from '@/lib/types';
+import { Product, SalesRecord, Expense, ServiceRecord } from '@/lib/types';
 import { useBusiness } from '@/lib/business-context';
+import { useAuth } from '@/lib/auth-context';
+import { totalExpensesInPeriod } from '@/app/(dashboard)/dashboard/expenses/expense-utils';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts';
 import {
-  TrendingUp, DollarSign, Package, Award,
+  TrendingUp, TrendingDown, DollarSign, Package, Award,
   BarChart3, Loader2, ArrowUpRight, ArrowDownRight,
-  ShoppingBag, Layers,
+  ShoppingBag, Layers, Wallet, Sparkles, Minus, Banknote, ShieldAlert,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -20,11 +22,23 @@ import { motion } from 'framer-motion';
 type TimeRange = 'day' | 'week' | 'month';
 
 interface Stats {
-  totalRevenue:   number;
-  totalUnitsSold: number;
-  avgOrderValue:  number;
-  totalOrders:    number;
-  topProduct:     { name: string; quantity: number };
+  totalRevenue:    number;
+  totalCost:       number;
+  totalGrossProfit: number;
+  totalExpenses:   number;
+  totalNetProfit:  number;
+  netMargin:       number;
+  totalUnitsSold:  number;
+  avgOrderValue:   number;
+  totalOrders:     number;
+  topProduct:      { name: string; quantity: number };
+}
+
+interface Deltas {
+  revenue: number | null;
+  netProfit: number | null;
+  orders:  number | null;
+  aov:     number | null;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -47,31 +61,48 @@ const TIME_RANGES: { key: TimeRange; label: string; short: string }[] = [
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Get the start-of-day boundary for a given range — always calendar-accurate */
-function getRangeStart(range: TimeRange): Date {
-  const now = new Date();
+function getRangeStart(range: TimeRange, ref: Date = new Date()): Date {
+  const now = ref;
   if (range === 'day') {
-    // Start of today (midnight)
     return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
   }
   if (range === 'week') {
-    // Start of this week — Monday
-    const day  = now.getDay(); // 0=Sun, 1=Mon…
-    const diff = (day === 0 ? -6 : 1 - day); // how many days back to Monday
-    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diff, 0, 0, 0, 0);
-    return monday;
+    const day  = now.getDay();
+    const diff = (day === 0 ? -6 : 1 - day);
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate() + diff, 0, 0, 0, 0);
   }
-  // Month — start of this month
   return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
 }
 
-/** Build chart buckets for day = per-hour, week = per-weekday, month = per-day-of-month */
-function buildChartBuckets(range: TimeRange): { key: string; label: string; ts: number }[] {
+/** Bounds for the immediately preceding equivalent period, used for trend deltas */
+function getPreviousRangeBounds(range: TimeRange): { start: Date; end: Date } {
+  const currentStart = getRangeStart(range);
+  if (range === 'day') {
+    const start = new Date(currentStart);
+    start.setDate(start.getDate() - 1);
+    return { start, end: currentStart };
+  }
+  if (range === 'week') {
+    const start = new Date(currentStart);
+    start.setDate(start.getDate() - 7);
+    return { start, end: currentStart };
+  }
+  // month
+  const start = new Date(currentStart.getFullYear(), currentStart.getMonth() - 1, 1);
+  return { start, end: currentStart };
+}
+
+/** Build chart buckets for day = per-hour, week = per-weekday, month = per-day-of-month.
+ *  Each bucket also carries its own [start, end) window so expenses can be
+ *  prorated per-bucket the same way they are for the dashboard's daily numbers. */
+function buildChartBuckets(range: TimeRange): { key: string; label: string; ts: number; end: number }[] {
   const now   = new Date();
   const start = getRangeStart(range);
-  const buckets: { key: string; label: string; ts: number }[] = [];
+  const buckets: { key: string; label: string; ts: number; end: number }[] = [];
+  const HOUR = 60 * 60 * 1000;
+  const DAY  = 24 * HOUR;
 
   if (range === 'day') {
-    // Hours from midnight to current hour
     for (let h = 0; h <= now.getHours(); h++) {
       const d = new Date(start);
       d.setHours(h);
@@ -79,10 +110,10 @@ function buildChartBuckets(range: TimeRange): { key: string; label: string; ts: 
         key:   `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${h}`,
         label: `${h % 12 === 0 ? 12 : h % 12}${h < 12 ? 'am' : 'pm'}`,
         ts:    d.getTime(),
+        end:   d.getTime() + HOUR,
       });
     }
   } else if (range === 'week') {
-    // Monday → today
     const day = now.getDay();
     const daysFromMon = day === 0 ? 6 : day - 1;
     const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -93,15 +124,14 @@ function buildChartBuckets(range: TimeRange): { key: string; label: string; ts: 
         key:   d.toDateString(),
         label: DAYS[(start.getDay() + i - 1 + 7) % 7] || DAYS[i],
         ts:    d.getTime(),
+        end:   d.getTime() + DAY,
       });
     }
-    // Fix labels — use actual weekday
     buckets.forEach((b) => {
       const d = new Date(b.ts);
       b.label = DAYS[d.getDay() === 0 ? 6 : d.getDay() - 1];
     });
   } else {
-    // Days 1 → today in this month
     const daysInMonth = now.getDate();
     for (let d = 1; d <= daysInMonth; d++) {
       const dt = new Date(now.getFullYear(), now.getMonth(), d);
@@ -109,6 +139,7 @@ function buildChartBuckets(range: TimeRange): { key: string; label: string; ts: 
         key:   dt.toDateString(),
         label: `${d}`,
         ts:    dt.getTime(),
+        end:   dt.getTime() + DAY,
       });
     }
   }
@@ -116,26 +147,46 @@ function buildChartBuckets(range: TimeRange): { key: string; label: string; ts: 
   return buckets;
 }
 
-/** Map a sale to a bucket key */
-function saleToBucketKey(sale: SalesRecord, range: TimeRange): string {
-  const d = sale.recordedAt;
+/** Map any timestamp to a bucket key */
+function dateToBucketKey(d: Date, range: TimeRange): string {
   if (range === 'day') {
     return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}-${d.getHours()}`;
   }
-  // week + month both key by date string
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toDateString();
+}
+
+/** Map a sale to a bucket key */
+function saleToBucketKey(sale: SalesRecord, range: TimeRange): string {
+  return dateToBucketKey(sale.recordedAt, range);
+}
+
+/** Per-unit cost for a product — falls back sensibly across schema variants */
+function getUnitCost(p?: Product): number {
+  if (!p) return 0;
+  return (p as any).pieceCost ?? p.costPrice ?? 0;
+}
+
+/** Cost incurred for a single sale, based on the product's current unit cost */
+function getSaleCost(sale: SalesRecord, p?: Product): number {
+  return getUnitCost(p) * sale.quantity;
 }
 
 const Skeleton = ({ className = '' }: { className?: string }) => (
   <div className={`animate-pulse bg-gray-100 dark:bg-gray-800 rounded-xl ${className}`} />
 );
 
-const CustomBarTooltip = ({ active, payload, label }: any) => {
+const ComposedTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 shadow-xl">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 shadow-xl space-y-1">
       <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-0.5">{label}</p>
-      <p className="text-sm font-black text-gray-900 dark:text-white">₵{Number(payload[0].value).toLocaleString()}</p>
+      {payload.map((p: any) => (
+        <div key={p.dataKey} className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
+          <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">{p.name || p.dataKey}</span>
+          <span className="text-xs font-black text-gray-900 dark:text-white ml-auto">₵{Number(p.value).toLocaleString()}</span>
+        </div>
+      ))}
     </div>
   );
 };
@@ -159,6 +210,25 @@ function EmptyChart({ icon: Icon, label, height }: { icon: any; label: string; h
   );
 }
 
+/** Small trend pill — up/down/flat vs previous equivalent period */
+function TrendBadge({ pct }: { pct: number | null }) {
+  if (pct === null) return null;
+  const flat = Math.abs(pct) < 0.5;
+  const up   = pct > 0;
+  const Icon = flat ? Minus : up ? ArrowUpRight : ArrowDownRight;
+  const color = flat
+    ? 'text-gray-400 bg-gray-100 dark:bg-gray-800'
+    : up
+      ? 'text-green-600 dark:text-green-400 bg-green-500/10'
+      : 'text-red-600 dark:text-red-400 bg-red-500/10';
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-[10px] font-black px-1.5 py-0.5 rounded-md ${color}`}>
+      <Icon className="w-3 h-3" />
+      {Math.abs(pct).toFixed(0)}%
+    </span>
+  );
+}
+
 // ─── Smart stock value (same logic as products page) ──────────────────────────
 function calcProductValue(p: Product): number {
   const piecePrice = (p as any).piecePrice ?? p.sellingPrice ?? 0;
@@ -173,9 +243,17 @@ function calcProductValue(p: Product): number {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ReportsPage() {
   const { activeBusiness } = useBusiness();
+  const { user } = useAuth();
+
+  // Salaries live inside expenses — only admin/manager see the expense-adjusted
+  // (real) profit numbers here. Same gate as the Expenses page and dashboard.
+  const canSeeExpenses = !!user && (user.role === 'admin' || user.role === 'manager');
+  const isRestricted   = !!user && !canSeeExpenses && user.role !== 'sales'; // defensive; nav already hides this for 'sales'/'staff'
 
   const [products,  setProducts]  = useState<Product[]>([]);
   const [allSales,  setAllSales]  = useState<SalesRecord[]>([]);
+  const [allServiceJobs, setAllServiceJobs] = useState<ServiceRecord[]>([]);
+  const [expenses,  setExpenses]  = useState<Expense[]>([]);
   const [timeRange, setTimeRange] = useState<TimeRange>('week');
   const [loading,   setLoading]   = useState(true);
 
@@ -184,9 +262,13 @@ export default function ReportsPage() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [prodSnap, salesSnap] = await Promise.all([
+        const [prodSnap, salesSnap, servicesSnap, expensesSnap] = await Promise.all([
           getDocs(query(collection(db, 'products'), where('businessId', '==', activeBusiness.id))),
           getDocs(query(collection(db, 'sales'),    where('businessId', '==', activeBusiness.id))),
+          getDocs(query(collection(db, 'serviceRecords'), where('businessId', '==', activeBusiness.id))),
+          canSeeExpenses
+            ? getDocs(query(collection(db, 'expenses'), where('businessId', '==', activeBusiness.id)))
+            : Promise.resolve(null),
         ]);
         setProducts(prodSnap.docs.map((d) => ({
           id: d.id, ...d.data(),
@@ -197,49 +279,98 @@ export default function ReportsPage() {
           id: d.id, ...d.data(),
           recordedAt: d.data().recordedAt?.toDate() || new Date(),
         })) as SalesRecord[]);
+        setAllServiceJobs(servicesSnap.docs.map((d) => ({
+          id: d.id, ...d.data(),
+          recordedAt: d.data().recordedAt?.toDate() || new Date(),
+        })) as ServiceRecord[]);
+        setExpenses(
+          expensesSnap
+            ? (expensesSnap.docs.map((d) => ({
+                id: d.id, ...d.data(),
+                startDate: d.data().startDate?.toDate() || new Date(),
+                endDate:   d.data().endDate?.toDate() || null,
+                createdAt: d.data().createdAt?.toDate() || new Date(),
+              })) as Expense[])
+            : []
+        );
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };
     fetchData();
-  }, [activeBusiness]);
+  }, [activeBusiness, canSeeExpenses]);
 
-  const { filteredSales, stats, salesChartData, categoryData, topProducts } = useMemo(() => {
-    const rangeStart = getRangeStart(timeRange);
-    const filtered   = allSales.filter((s) => s.recordedAt >= rangeStart);
+  const { filteredSales, hasActivity, stats, salesChartData, categoryData, topProducts, deltas } = useMemo(() => {
+    const now         = new Date();
+    const rangeStart   = getRangeStart(timeRange);
+    const filtered     = allSales.filter((s) => s.recordedAt >= rangeStart);
+    const filteredServiceJobs = allServiceJobs.filter((r) => r.recordedAt >= rangeStart);
+    const findProduct  = (id: string) => products.find((x) => x.id === id);
 
-    // Stats
-    const totalRevenue   = filtered.reduce((s, r) => s + r.totalAmount, 0);
-    const totalUnitsSold = filtered.reduce((s, r) => s + r.quantity, 0);
-    const avgOrderValue  = filtered.length > 0 ? totalRevenue / filtered.length : 0;
+    // Stats — gross first (revenue - cost of goods / parts), then net (gross - real expenses).
+    // Service jobs (flashing, unlocking, repairs) have no inventory cost — their "cost" is
+    // whatever parts were logged against the job, 0 for pure labor — but they're real revenue
+    // and count toward the same profit numbers as product sales.
+    const salesRevenue      = filtered.reduce((s, r) => s + r.totalAmount, 0);
+    const salesCost         = filtered.reduce((s, r) => s + getSaleCost(r, findProduct(r.productId)), 0);
+    const serviceRevenue    = filteredServiceJobs.reduce((s, r) => s + r.price, 0);
+    const serviceCost       = filteredServiceJobs.reduce((s, r) => s + r.cost, 0);
+    const totalRevenue     = salesRevenue + serviceRevenue;
+    const totalCost        = salesCost + serviceCost;
+    const totalGrossProfit = totalRevenue - totalCost;
+    const totalExpenses    = canSeeExpenses ? totalExpensesInPeriod(expenses, rangeStart, now) : 0;
+    const totalNetProfit   = totalGrossProfit - totalExpenses;
+    const netMargin        = totalRevenue > 0 ? (totalNetProfit / totalRevenue) * 100 : 0;
+    const totalUnitsSold   = filtered.reduce((s, r) => s + r.quantity, 0);
+    const totalOrders      = filtered.length + filteredServiceJobs.length;
+    const avgOrderValue    = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
-    // Per-product map
-    const prodMap: Record<string, { name: string; quantity: number; revenue: number }> = {};
+    // Per-product map (revenue + gross profit — expenses aren't tied to a single product)
+    const prodMap: Record<string, { name: string; quantity: number; revenue: number; profit: number }> = {};
     filtered.forEach((sale) => {
-      const p = products.find((x) => x.id === sale.productId);
+      const p = findProduct(sale.productId);
       if (!p) return;
-      if (!prodMap[sale.productId]) prodMap[sale.productId] = { name: p.name, quantity: 0, revenue: 0 };
+      if (!prodMap[sale.productId]) prodMap[sale.productId] = { name: p.name, quantity: 0, revenue: 0, profit: 0 };
+      const cost = getSaleCost(sale, p);
       prodMap[sale.productId].quantity += sale.quantity;
       prodMap[sale.productId].revenue  += sale.totalAmount;
+      prodMap[sale.productId].profit   += (sale.totalAmount - cost);
     });
     const prodArr    = Object.values(prodMap).sort((a, b) => b.revenue - a.revenue);
     const topProduct = prodArr[0] ?? { name: 'N/A', quantity: 0 };
 
-    // Chart — build all buckets first (so empty days still show), then fill
+    // Chart — build all buckets first (so empty days still show), fill with revenue + net profit.
+    // Expenses are prorated per-bucket using each bucket's own [ts, end) window —
+    // same accrual logic as the dashboard, just applied hour-by-hour or day-by-day.
     const buckets  = buildChartBuckets(timeRange);
     const revenueByKey: Record<string, number> = {};
+    const grossByKey:   Record<string, number> = {};
     filtered.forEach((sale) => {
       const k = saleToBucketKey(sale, timeRange);
+      const p = findProduct(sale.productId);
+      const cost = getSaleCost(sale, p);
       revenueByKey[k] = (revenueByKey[k] || 0) + sale.totalAmount;
+      grossByKey[k]   = (grossByKey[k]   || 0) + (sale.totalAmount - cost);
     });
-    const salesChartData = buckets.map((b) => ({
-      date:    b.label,
-      revenue: Math.round(revenueByKey[b.key] || 0),
-    }));
+    filteredServiceJobs.forEach((job) => {
+      const k = dateToBucketKey(job.recordedAt, timeRange);
+      revenueByKey[k] = (revenueByKey[k] || 0) + job.price;
+      grossByKey[k]   = (grossByKey[k]   || 0) + (job.price - job.cost);
+    });
+    const salesChartData = buckets.map((b) => {
+      const bucketExpenses = canSeeExpenses
+        ? totalExpensesInPeriod(expenses, new Date(b.ts), new Date(Math.min(b.end, now.getTime())))
+        : 0;
+      return {
+        date:      b.label,
+        revenue:   Math.round(revenueByKey[b.key] || 0),
+        netProfit: Math.round((grossByKey[b.key] || 0) - bucketExpenses),
+      };
+    });
 
     // Category breakdown
     const catMap: Record<string, number> = {};
     filtered.forEach((sale) => {
-      const p = products.find((x) => x.id === sale.productId);
+      const p = findProduct(sale.productId);
       if (!p) return;
       catMap[p.category] = (catMap[p.category] || 0) + sale.totalAmount;
     });
@@ -247,55 +378,101 @@ export default function ReportsPage() {
       .map(([cat, val]) => ({ name: CATEGORY_LABELS[cat] || cat, value: Math.round(val) }))
       .sort((a, b) => b.value - a.value);
 
+    // Previous-period deltas
+    const { start: prevStart, end: prevEnd } = getPreviousRangeBounds(timeRange);
+    const prevFiltered      = allSales.filter((s) => s.recordedAt >= prevStart && s.recordedAt < prevEnd);
+    const prevServiceJobs   = allServiceJobs.filter((r) => r.recordedAt >= prevStart && r.recordedAt < prevEnd);
+    const prevSalesRevenue  = prevFiltered.reduce((s, r) => s + r.totalAmount, 0);
+    const prevSalesCost     = prevFiltered.reduce((s, r) => s + getSaleCost(r, findProduct(r.productId)), 0);
+    const prevServiceRevenue = prevServiceJobs.reduce((s, r) => s + r.price, 0);
+    const prevServiceCost    = prevServiceJobs.reduce((s, r) => s + r.cost, 0);
+    const prevRevenue     = prevSalesRevenue + prevServiceRevenue;
+    const prevGrossProfit = prevRevenue - (prevSalesCost + prevServiceCost);
+    const prevExpenses    = canSeeExpenses ? totalExpensesInPeriod(expenses, prevStart, prevEnd) : 0;
+    const prevNetProfit   = prevGrossProfit - prevExpenses;
+    const prevOrders      = prevFiltered.length + prevServiceJobs.length;
+    const prevAov         = prevOrders > 0 ? prevRevenue / prevOrders : 0;
+
+    const pct = (curr: number, prev: number): number | null => {
+      if (prev === 0) return curr > 0 ? 100 : null;
+      return ((curr - prev) / prev) * 100;
+    };
+
+    const deltas: Deltas = {
+      revenue:   pct(totalRevenue, prevRevenue),
+      netProfit: pct(totalNetProfit, prevNetProfit),
+      orders:    pct(totalOrders, prevOrders),
+      aov:       pct(avgOrderValue, prevAov),
+    };
+
     return {
       filteredSales: filtered,
-      stats: { totalRevenue, totalUnitsSold, avgOrderValue, totalOrders: filtered.length, topProduct },
+      hasActivity: filtered.length + filteredServiceJobs.length > 0,
+      stats: {
+        totalRevenue, totalCost, totalGrossProfit, totalExpenses, totalNetProfit, netMargin,
+        totalUnitsSold, avgOrderValue, totalOrders, topProduct,
+      },
       salesChartData,
       categoryData,
       topProducts: prodArr.slice(0, 5),
+      deltas,
     };
-  }, [allSales, products, timeRange]);
+  }, [allSales, allServiceJobs, products, expenses, timeRange, canSeeExpenses]);
 
   const rangeLabel = timeRange === 'day' ? 'Today' : timeRange === 'week' ? 'This Week' : 'This Month';
+  const fmt = (v: number) => v >= 1000 ? `₵${(v / 1000).toFixed(1)}K` : `₵${Math.round(v).toLocaleString()}`;
 
   const statCards = [
     {
-      label: 'Total Revenue', icon: DollarSign,
-      value: stats.totalRevenue >= 1000 ? `₵${(stats.totalRevenue/1000).toFixed(1)}K` : `₵${Math.round(stats.totalRevenue).toLocaleString()}`,
+      label: 'Total Revenue', icon: DollarSign, delta: deltas.revenue,
+      value: fmt(stats.totalRevenue),
       accent: '#22c55e', bg: 'bg-green-500/8', text: 'text-green-600 dark:text-green-400', border: 'border-green-500/15',
     },
     {
-      label: 'Units Sold', icon: Package,
+      label: canSeeExpenses ? 'Net Profit' : 'Gross Profit', icon: Wallet, delta: deltas.netProfit,
+      value: fmt(canSeeExpenses ? stats.totalNetProfit : stats.totalGrossProfit),
+      sub: canSeeExpenses
+        ? `${fmt(stats.totalGrossProfit)} gross − ${fmt(stats.totalExpenses)} expenses`
+        : `${stats.netMargin.toFixed(0)}% margin`,
+      accent: '#8b5cf6', bg: 'bg-purple-500/8', text: 'text-purple-600 dark:text-purple-400', border: 'border-purple-500/15',
+    },
+    {
+      label: 'Units Sold', icon: Package, delta: null,
       value: stats.totalUnitsSold.toLocaleString(),
       accent: '#3b82f6', bg: 'bg-blue-500/8', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/15',
     },
     {
-      label: 'Total Orders', icon: ShoppingBag,
+      label: 'Total Orders', icon: ShoppingBag, delta: deltas.orders,
       value: stats.totalOrders.toLocaleString(),
       accent: '#f59e0b', bg: 'bg-amber-500/8', text: 'text-amber-600 dark:text-amber-400', border: 'border-amber-500/15',
     },
     {
-      label: 'Avg Order Value', icon: TrendingUp,
+      label: 'Avg Order Value', icon: TrendingUp, delta: deltas.aov,
       value: `₵${Math.round(stats.avgOrderValue).toLocaleString()}`,
       accent: '#ec4899', bg: 'bg-pink-500/8', text: 'text-pink-600 dark:text-pink-400', border: 'border-pink-500/15',
     },
   ];
 
   return (
-    <div className="min-h-full bg-gray-50 dark:bg-[#0a0a0a]">
-      <div className="h-[2px] w-full bg-gradient-to-r from-green-500 via-green-400 to-transparent" />
+    <div className="min-h-full bg-gray-50 dark:bg-[#0a0a0a] relative overflow-hidden">
+      {/* Ambient background glow */}
+      <div className="pointer-events-none absolute -top-24 -right-24 w-96 h-96 rounded-full bg-green-500/10 blur-[100px]" />
+      <div className="pointer-events-none absolute top-40 -left-24 w-80 h-80 rounded-full bg-purple-500/10 blur-[100px]" />
 
-      <div className="px-4 sm:px-6 py-5 max-w-[1400px] mx-auto space-y-5 pb-10">
+      <div className="h-[2px] w-full bg-gradient-to-r from-green-500 via-green-400 to-transparent relative z-10" />
+
+      <div className="px-4 sm:px-6 py-5 max-w-[1400px] mx-auto space-y-5 pb-10 relative z-10">
 
         {/* HEADER */}
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
           className="flex flex-col sm:flex-row sm:items-end gap-4">
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-bold text-green-500 uppercase tracking-[0.15em] mb-1">
+            <p className="text-xs font-bold text-green-500 uppercase tracking-[0.15em] mb-1 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" />
               Analytics · <span className="text-gray-400 font-normal">{activeBusiness?.name ?? '—'}</span>
             </p>
-            <h1 className="text-3xl lg:text-4xl font-black tracking-tight text-gray-900 dark:text-white">
-              Reports<span className="text-gray-300 dark:text-gray-600">.</span>
+            <h1 className="text-3xl lg:text-4xl font-black tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent">
+              Reports<span className="text-green-500">.</span>
             </h1>
           </div>
 
@@ -315,21 +492,32 @@ export default function ReportsPage() {
           </div>
         </motion.div>
 
+        {!canSeeExpenses && (
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/8 border border-amber-500/15 text-amber-700 dark:text-amber-400">
+            <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
+            <p className="text-xs font-semibold">Showing gross profit only — expense-adjusted net profit is visible to admins and managers.</p>
+          </div>
+        )}
+
         {/* STAT CARDS */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
           {loading
-            ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-[88px] sm:h-[100px]" />)
+            ? Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-[92px] sm:h-[108px]" />)
             : statCards.map((card, i) => (
               <motion.div key={card.label}
                 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.06, type: 'spring', stiffness: 300, damping: 24 }}>
-                <div className={`rounded-2xl border ${card.border} ${card.bg} bg-white dark:bg-gray-900 p-4 sm:p-5 relative overflow-hidden hover:shadow-md transition-shadow`}>
-                  <div className="absolute -right-4 -top-4 w-20 h-20 rounded-full opacity-[0.06] blur-xl" style={{ background: card.accent }} />
+                transition={{ delay: i * 0.06, type: 'spring', stiffness: 300, damping: 24 }}
+                whileHover={{ y: -2 }}>
+                <div className={`rounded-2xl border ${card.border} ${card.bg} bg-white dark:bg-gray-900 p-4 sm:p-5 relative overflow-hidden hover:shadow-lg transition-shadow`}>
+                  <div className="absolute -right-4 -top-4 w-20 h-20 rounded-full opacity-[0.08] blur-xl" style={{ background: card.accent }} />
                   <div className="flex items-start justify-between gap-2 relative z-10">
                     <div className="flex-1 min-w-0">
                       <p className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-gray-400 mb-1.5 truncate">{card.label}</p>
                       <p className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white leading-none truncate">{card.value}</p>
-                      <p className="text-[10px] text-gray-400 mt-1">{rangeLabel}</p>
+                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                        <p className="text-[10px] text-gray-400 truncate">{'sub' in card && card.sub ? card.sub : rangeLabel}</p>
+                        <TrendBadge pct={card.delta} />
+                      </div>
                     </div>
                     <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl ${card.bg} border ${card.border} flex items-center justify-center flex-shrink-0`}>
                       <card.icon className={`w-4 h-4 ${card.text}`} />
@@ -344,32 +532,44 @@ export default function ReportsPage() {
         {/* CHARTS ROW */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-          {/* Revenue trend */}
+          {/* Revenue & profit trend */}
           <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="lg:col-span-2">
             <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm overflow-hidden">
               <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <span className="w-1 h-5 bg-green-500 rounded-full" />
-                  <h3 className="font-black text-sm text-gray-900 dark:text-white uppercase tracking-wider">Revenue — {rangeLabel}</h3>
+                  <h3 className="font-black text-sm text-gray-900 dark:text-white uppercase tracking-wider">
+                    Revenue & {canSeeExpenses ? 'Net Profit' : 'Profit'} — {rangeLabel}
+                  </h3>
                 </div>
-                {filteredSales.length > 0 && (
-                  <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-green-500/10 text-green-600 dark:text-green-400">
-                    ₵{stats.totalRevenue >= 1000 ? `${(stats.totalRevenue/1000).toFixed(1)}K` : Math.round(stats.totalRevenue).toLocaleString()} total
-                  </span>
+                {hasActivity && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-green-500/10 text-green-600 dark:text-green-400">
+                      {fmt(stats.totalRevenue)} revenue
+                    </span>
+                    <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                      {fmt(canSeeExpenses ? stats.totalNetProfit : stats.totalGrossProfit)} {canSeeExpenses ? 'net' : 'profit'}
+                    </span>
+                    {canSeeExpenses && (
+                      <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-red-500/10 text-red-600 dark:text-red-400">
+                        {fmt(stats.totalExpenses)} expenses
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
               <div className="p-4 sm:p-5">
                 {loading ? (
                   <Skeleton className="h-[220px] sm:h-[260px]" />
-                ) : filteredSales.length === 0 ? (
-                  <EmptyChart icon={BarChart3} label={`No sales ${rangeLabel.toLowerCase()}`} height="h-[220px] sm:h-[260px]" />
+                ) : !hasActivity ? (
+                  <EmptyChart icon={BarChart3} label={`No sales or services ${rangeLabel.toLowerCase()}`} height="h-[220px] sm:h-[260px]" />
                 ) : (
                   <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={salesChartData} barCategoryGap="30%">
+                    <ComposedChart data={salesChartData} barCategoryGap="30%">
                       <defs>
                         <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%"   stopColor="#22c55e" stopOpacity={0.9} />
-                          <stop offset="100%" stopColor="#16a34a" stopOpacity={0.4} />
+                          <stop offset="100%" stopColor="#16a34a" stopOpacity={0.35} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="currentColor"
@@ -379,10 +579,13 @@ export default function ReportsPage() {
                         interval={timeRange === 'month' ? 4 : 0} />
                       <YAxis tick={{ fontSize: 10, fontWeight: 700, fill: 'currentColor' }}
                         className="text-gray-400" axisLine={false} tickLine={false} width={52}
-                        tickFormatter={(v) => v >= 1000 ? `₵${(v/1000).toFixed(0)}K` : `₵${v}`} />
-                      <Tooltip content={<CustomBarTooltip />} cursor={{ fill: 'rgba(34,197,94,0.06)', radius: 8 }} />
-                      <Bar dataKey="revenue" fill="url(#revenueGrad)" radius={[6, 6, 2, 2]} maxBarSize={48} />
-                    </BarChart>
+                        tickFormatter={(v) => v >= 1000 ? `₵${(v / 1000).toFixed(0)}K` : `₵${v}`} />
+                      <Tooltip content={<ComposedTooltip />} cursor={{ fill: 'rgba(34,197,94,0.06)', radius: 8 }} />
+                      <Legend wrapperStyle={{ fontSize: 11, fontWeight: 700 }} iconType="circle" iconSize={8} />
+                      <Bar dataKey="revenue" name="Revenue" fill="url(#revenueGrad)" radius={[6, 6, 2, 2]} maxBarSize={40} />
+                      <Line type="monotone" dataKey="netProfit" name={canSeeExpenses ? 'Net Profit' : 'Profit'} stroke="#8b5cf6" strokeWidth={2.5}
+                        dot={{ r: 3, fill: '#8b5cf6', strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                    </ComposedChart>
                   </ResponsiveContainer>
                 )}
               </div>
@@ -403,17 +606,23 @@ export default function ReportsPage() {
                   <EmptyChart icon={Layers} label="No category data" height="h-[220px]" />
                 ) : (
                   <>
-                    <ResponsiveContainer width="100%" height={180}>
-                      <PieChart>
-                        <Pie data={categoryData} cx="50%" cy="50%" innerRadius={52} outerRadius={82}
-                          dataKey="value" stroke="none" paddingAngle={3}>
-                          {categoryData.map((_, idx) => (
-                            <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip content={<CustomPieTooltip />} />
-                      </PieChart>
-                    </ResponsiveContainer>
+                    <div className="relative">
+                      <ResponsiveContainer width="100%" height={180}>
+                        <PieChart>
+                          <Pie data={categoryData} cx="50%" cy="50%" innerRadius={52} outerRadius={82}
+                            dataKey="value" stroke="none" paddingAngle={3}>
+                            {categoryData.map((_, idx) => (
+                              <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip content={<CustomPieTooltip />} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                        <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Total</p>
+                        <p className="text-sm font-black text-gray-900 dark:text-white">{fmt(stats.totalRevenue)}</p>
+                      </div>
+                    </div>
                     <div className="mt-3 space-y-2">
                       {categoryData.map((cat, idx) => {
                         const pct = stats.totalRevenue > 0 ? ((cat.value / stats.totalRevenue) * 100).toFixed(0) : '0';
@@ -453,6 +662,7 @@ export default function ReportsPage() {
                   {topProducts.map((p, i) => {
                     const maxRevenue = topProducts[0]?.revenue ?? 1;
                     const pct = Math.round((p.revenue / maxRevenue) * 100);
+                    const margin = p.revenue > 0 ? (p.profit / p.revenue) * 100 : 0;
                     return (
                       <motion.div key={p.name}
                         initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
@@ -472,10 +682,9 @@ export default function ReportsPage() {
                           </div>
                         </div>
                         <div className="text-right flex-shrink-0">
-                          <p className="text-xs font-black text-gray-900 dark:text-white">
-                            ₵{p.revenue >= 1000 ? `${(p.revenue/1000).toFixed(1)}K` : p.revenue.toLocaleString()}
-                          </p>
-                          <p className="text-[10px] text-gray-400">{p.quantity} units</p>
+                          <p className="text-xs font-black text-gray-900 dark:text-white">{fmt(p.revenue)}</p>
+                          <p className="text-[10px] text-purple-500 dark:text-purple-400 font-bold">{fmt(p.profit)} gross</p>
+                          <p className="text-[10px] text-gray-400">{p.quantity} units · {margin.toFixed(0)}% margin</p>
                         </div>
                       </motion.div>
                     );
@@ -515,7 +724,7 @@ export default function ReportsPage() {
                     </motion.div>
                   ))}
 
-                  {/* Total stock value — uses smart box+piece calculation */}
+                  {/* Total stock value + potential profit if sold at listed price */}
                   <div className="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-1.5">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Stock Value (selling)</span>
@@ -526,7 +735,13 @@ export default function ReportsPage() {
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Stock Value (cost)</span>
                       <span className="text-sm font-black text-gray-500 dark:text-gray-400">
-                        ₵{products.reduce((s, p) => s + ((p as any).pieceCost ?? p.costPrice ?? 0) * p.quantity, 0).toLocaleString()}
+                        ₵{products.reduce((s, p) => s + getUnitCost(p) * p.quantity, 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-purple-500 dark:text-purple-400 uppercase tracking-wider">Potential Profit</span>
+                      <span className="text-sm font-black text-purple-600 dark:text-purple-400">
+                        ₵{products.reduce((s, p) => s + (calcProductValue(p) - getUnitCost(p) * p.quantity), 0).toLocaleString()}
                       </span>
                     </div>
                   </div>

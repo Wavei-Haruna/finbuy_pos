@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useBusiness } from '@/lib/business-context';
 import { db } from '@/lib/firebase';
 import {
-  collection, getDocs, doc, writeBatch,
+  collection, getDocs, doc, writeBatch, increment,
   query, where, orderBy, limit, startAfter,
   type DocumentSnapshot,
 } from 'firebase/firestore';
@@ -173,13 +173,16 @@ export default function SalesPage() {
           receiptNo,
         });
 
-        const prod = products.find((p) => p.id === item.productId);
-        if (prod) {
-          batch.update(doc(db, 'products', item.productId), {
-            quantity:    Math.max(0, prod.quantity - unitsConsumed),
-            lastUpdated: new Date(),
-          });
-        }
+        // Atomic decrement — safe even if this product appears more than once
+        // in the same cart (e.g. a piece sale AND a box sale of the same
+        // item) or if another sale is being recorded concurrently.
+        // A plain `prod.quantity - unitsConsumed` write is NOT safe here:
+        // if the same product doc gets updated twice in one batch, the
+        // second absolute write silently overwrites the first.
+        batch.update(doc(db, 'products', item.productId), {
+          quantity:    increment(-unitsConsumed),
+          lastUpdated: new Date(),
+        });
       }
 
       await batch.commit();
@@ -226,10 +229,12 @@ export default function SalesPage() {
       batch.delete(doc(db, 'sales', sale.id));
 
       // Restore the stock this sale consumed, if the product still exists.
+      // Atomic increment, same reasoning as handleSubmit.
       const prod = products.find((p) => p.id === sale.productId);
       if (prod) {
+        const restored = unitsConsumedFor(sale);
         batch.update(doc(db, 'products', sale.productId), {
-          quantity:    prod.quantity + unitsConsumedFor(sale),
+          quantity:    increment(restored),
           lastUpdated: new Date(),
         });
       }

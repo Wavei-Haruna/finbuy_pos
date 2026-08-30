@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useBusiness } from '@/lib/business-context';
 import {
   LayoutDashboard, Package, ShoppingCart, AlertCircle,
-  BarChart3, Users, Settings, LogOut, Building2, X, ChevronDown, Check
+  BarChart3, Users, Settings, LogOut, Building2, X, ChevronDown, Check, Banknote, Smartphone
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -16,6 +16,8 @@ const navigationItems = [
   { label: 'Dashboard',    href: '/dashboard',            icon: LayoutDashboard, roles: ['admin', 'sales', 'manager'] },
   { label: 'Products',     href: '/dashboard/products',   icon: Package,         roles: ['admin', 'sales', 'manager'] },
   { label: 'Record Sale',  href: '/dashboard/sales',      icon: ShoppingCart,    roles: ['admin', 'sales'] },
+  { label: 'Services',     href: '/dashboard/services',   icon: Smartphone,      roles: ['admin', 'sales'] },
+  { label: 'Expenses',     href: '/dashboard/expenses',   icon: Banknote,        roles: ['admin', 'manager'] },
   { label: 'Stock Alerts', href: '/dashboard/alerts',     icon: AlertCircle,     roles: ['admin', 'manager'] },
   { label: 'Reports',      href: '/dashboard/reports',    icon: BarChart3,       roles: ['admin', 'manager'] },
   { label: 'Businesses',   href: '/dashboard/businesses', icon: Building2,       roles: ['admin'] },
@@ -148,6 +150,8 @@ function SidebarInner({ onClose }: { onClose: () => void }) {
             pathname === item.href ||
             (item.href !== '/dashboard' && pathname.startsWith(item.href + '/'));
           const isBiz = item.href === '/dashboard/businesses';
+          const isExpenses = item.href === '/dashboard/expenses';
+          const isServices = item.href === '/dashboard/services';
 
           return (
             <motion.div
@@ -188,7 +192,11 @@ function SidebarInner({ onClose }: { onClose: () => void }) {
                       ? 'text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.5)]'
                       : isBiz
                         ? 'text-green-400 group-hover:text-green-300'
-                        : 'text-gray-400 group-hover:text-gray-300'
+                        : isExpenses
+                          ? 'text-red-400 group-hover:text-red-300'
+                          : isServices
+                            ? 'text-indigo-400 group-hover:text-indigo-300'
+                            : 'text-gray-400 group-hover:text-gray-300'
                   )} />
                 </div>
 

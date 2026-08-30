@@ -18,7 +18,7 @@ export interface StaffSession {
 /** Returns midnight of 11pm tonight */
 function getTodayExpiry(): Date {
   const expiry = new Date();
-  expiry.setHours(23, 0, 0, 0);
+  expiry.setHours(0, 0, 0, 0);
   // If already past 11pm, expire immediately (force re-login tomorrow)
   if (new Date() >= expiry) expiry.setDate(expiry.getDate() + 1);
   return expiry;
