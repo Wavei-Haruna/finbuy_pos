@@ -104,18 +104,33 @@ export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
 
 export const EXPENSE_CATEGORIES = Object.keys(EXPENSE_CATEGORY_LABELS) as ExpenseCategory[];
 
-// ── SERVICES ────────────────────────────────────────────────────────────────
-// Non-inventory work — phone flashing, unlocking, repairs. No stock to
-// decrement; revenue/profit still roll into the same dashboard + reports
-// numbers as product sales.
+// ── BUSINESS TYPE ───────────────────────────────────────────────────────────
+// Drives labels/icons/accent color in the ServiceForm (phone-repair vs
+// barbing-salon vs general). No longer drives a fixed category list — see
+// note on ServiceCategory below.
+// Existing businesses with no value set should be treated as 'phone-repair'
+// for backwards compatibility.
 
-export type ServiceCategory =
-  | 'flashing'
-  | 'unlocking'
-  | 'software-repair'
-  | 'hardware-repair'
-  | 'data-recovery'
-  | 'other';
+export type BusinessType = 'phone-repair' | 'barbing-salon' | 'general';
+
+export const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
+  'phone-repair':  'Phone Repair Shop',
+  'barbing-salon': 'Barbing Salon',
+  general:         'General / Other',
+};
+
+// ── SERVICES ────────────────────────────────────────────────────────────────
+// Non-inventory work — phone flashing/repair, barbing/grooming, etc. No stock
+// to decrement; revenue/profit still roll into the same dashboard + reports
+// numbers as product sales.
+//
+// Category used to be a fixed union (flashing/haircut/etc.) with a preset
+// dropdown. It's now free text: every business defines its own categories
+// from scratch when they add their first service, so nothing is preset for
+// them and nothing leaks across business types. A brand-new business always
+// starts with zero services and zero categories until the owner adds one.
+
+export type ServiceCategory = string;
 
 // Catalog entry — a reusable service type with a default price, so staff
 // aren't retyping "iPhone Flash" and its price every single time.
@@ -123,7 +138,7 @@ export interface Service {
   id:           string;
   businessId:   string;
   name:         string;
-  category:     ServiceCategory;
+  category:     ServiceCategory;  // free text, entered by the business owner
   defaultPrice: number;
   createdAt:    Date;
 }
@@ -146,14 +161,3 @@ export interface ServiceRecord {
   notes:         string;
   receiptNo:     string;
 }
-
-export const SERVICE_CATEGORY_LABELS: Record<ServiceCategory, string> = {
-  flashing:          'Phone Flashing',
-  unlocking:         'Unlocking',
-  'software-repair': 'Software Repair',
-  'hardware-repair': 'Hardware Repair',
-  'data-recovery':   'Data Recovery',
-  other:             'Other',
-};
-
-export const SERVICE_CATEGORIES = Object.keys(SERVICE_CATEGORY_LABELS) as ServiceCategory[];

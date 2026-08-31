@@ -8,7 +8,7 @@ import {
   collection, getDocs, addDoc, deleteDoc, doc,
   query, where,
 } from 'firebase/firestore';
-import { Service, ServiceRecord, ServiceCategory, SERVICE_CATEGORY_LABELS } from '@/lib/types';
+import { Service, ServiceRecord } from '@/lib/types';
 import { ServiceForm } from './components/ServiceForm';
 import {
   Smartphone, Loader2, TrendingUp, Wrench, Trash2, X, Check,
@@ -61,7 +61,7 @@ export default function ServicesPage() {
 
   const handleSubmit = async (data: {
     serviceId: string | null;
-    newService?: { name: string; category: ServiceCategory; defaultPrice: number };
+    newService?: { name: string; category: string; defaultPrice: number };
     price: number; cost: number;
     customerName: string; customerPhone: string; notes: string;
   }) => {
@@ -70,9 +70,11 @@ export default function ServicesPage() {
     try {
       let serviceId = data.serviceId;
       let serviceName = services.find((s) => s.id === serviceId)?.name || '';
-      let category: ServiceCategory = services.find((s) => s.id === serviceId)?.category || 'other';
+      let category: string = services.find((s) => s.id === serviceId)?.category || 'Uncategorized';
 
       // Brand-new service type — save it to the catalog first so it's reusable next time.
+      // Category is whatever free text the business owner typed (or "Uncategorized"
+      // if they left it blank) — nothing is preset for them.
       if (!serviceId && data.newService) {
         const svcRef = await addDoc(collection(db, 'services'), {
           businessId: activeBusiness.id,
@@ -195,7 +197,8 @@ export default function ServicesPage() {
               </div>
             </div>
 
-            {/* Saved service catalog */}
+            {/* Saved service catalog — nothing shows here until the business
+                adds their own service; category is whatever they typed in. */}
             {services.length > 0 && (
               <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm p-5">
                 <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-3">Your Services</h3>
@@ -204,7 +207,7 @@ export default function ServicesPage() {
                     <div key={svc.id} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold text-gray-900 dark:text-white truncate">{svc.name}</p>
-                        <p className="text-[10px] text-gray-400">{SERVICE_CATEGORY_LABELS[svc.category]} · ₵{svc.defaultPrice.toLocaleString()}</p>
+                        <p className="text-[10px] text-gray-400">{svc.category || 'Uncategorized'} · ₵{svc.defaultPrice.toLocaleString()}</p>
                       </div>
                       {confirmDeleteServiceId === svc.id ? (
                         <div className="flex items-center gap-1">
@@ -255,7 +258,7 @@ export default function ServicesPage() {
                 <div className="py-16 flex flex-col items-center gap-3 text-center px-4">
                   <Wrench className="w-10 h-10 text-gray-200 dark:text-gray-700" />
                   <p className="text-sm font-semibold text-gray-400">No services logged yet</p>
-                  <p className="text-xs text-gray-400">Log your first flash, unlock, or repair to get started</p>
+                  <p className="text-xs text-gray-400">Add your first service type and log a job to get started</p>
                 </div>
               ) : (
                 <div className="divide-y divide-gray-50 dark:divide-gray-900 max-h-[720px] overflow-y-auto">
@@ -269,7 +272,7 @@ export default function ServicesPage() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{rec.serviceName}</p>
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500">
-                            {SERVICE_CATEGORY_LABELS[rec.category]}
+                            {rec.category || 'Uncategorized'}
                           </span>
                         </div>
                         <p className="text-[11px] text-gray-400 mt-0.5">
