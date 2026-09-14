@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useBusiness } from '@/lib/business-context';
 import {
   LayoutDashboard, Package, ShoppingCart, AlertCircle,
-  BarChart3, Users, Settings, LogOut, Building2, X, ChevronDown, Check, Banknote, Smartphone
+  BarChart3, Users, Settings, LogOut, Building2, X, ChevronDown, Check, Banknote, Smartphone, PackageX
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -18,6 +18,7 @@ const navigationItems = [
   { label: 'Record Sale',  href: '/dashboard/sales',      icon: ShoppingCart,    roles: ['admin', 'sales'] },
   { label: 'Services',     href: '/dashboard/services',   icon: Smartphone,      roles: ['admin', 'sales'] },
   { label: 'Expenses',     href: '/dashboard/expenses',   icon: Banknote,        roles: ['admin', 'manager'] },
+  { label: 'Damages',      href: '/dashboard/damages',    icon: PackageX,        roles: ['admin', 'manager'] },
   { label: 'Stock Alerts', href: '/dashboard/alerts',     icon: AlertCircle,     roles: ['admin', 'manager'] },
   { label: 'Reports',      href: '/dashboard/reports',    icon: BarChart3,       roles: ['admin', 'manager'] },
   { label: 'Businesses',   href: '/dashboard/businesses', icon: Building2,       roles: ['admin'] },
@@ -152,6 +153,7 @@ function SidebarInner({ onClose }: { onClose: () => void }) {
           const isBiz = item.href === '/dashboard/businesses';
           const isExpenses = item.href === '/dashboard/expenses';
           const isServices = item.href === '/dashboard/services';
+          const isDamages = item.href === '/dashboard/damages';
 
           return (
             <motion.div
@@ -196,7 +198,9 @@ function SidebarInner({ onClose }: { onClose: () => void }) {
                           ? 'text-red-400 group-hover:text-red-300'
                           : isServices
                             ? 'text-indigo-400 group-hover:text-indigo-300'
-                            : 'text-gray-400 group-hover:text-gray-300'
+                            : isDamages
+                              ? 'text-orange-400 group-hover:text-orange-300'
+                              : 'text-gray-400 group-hover:text-gray-300'
                   )} />
                 </div>
 

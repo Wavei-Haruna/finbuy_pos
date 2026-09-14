@@ -338,9 +338,9 @@ export default function ReportsPage() {
     const prodArr    = Object.values(prodMap).sort((a, b) => b.revenue - a.revenue);
     const topProduct = prodArr[0] ?? { name: 'N/A', quantity: 0 };
 
-    // Chart — build all buckets first (so empty days still show), fill with revenue + net profit.
-    // Expenses are prorated per-bucket using each bucket's own [ts, end) window —
-    // same accrual logic as the dashboard, just applied hour-by-hour or day-by-day.
+    // Chart — build all buckets first (so empty days still show), fill with revenue, net profit,
+    // and (for admins/managers) expenses. Expenses are prorated per-bucket using each bucket's
+    // own [ts, end) window — same accrual logic as the dashboard, just applied hour-by-hour or day-by-day.
     const buckets  = buildChartBuckets(timeRange);
     const revenueByKey: Record<string, number> = {};
     const grossByKey:   Record<string, number> = {};
@@ -364,6 +364,7 @@ export default function ReportsPage() {
         date:      b.label,
         revenue:   Math.round(revenueByKey[b.key] || 0),
         netProfit: Math.round((grossByKey[b.key] || 0) - bucketExpenses),
+        ...(canSeeExpenses ? { expenses: Math.round(bucketExpenses) } : {}),
       };
     });
 
@@ -585,6 +586,10 @@ export default function ReportsPage() {
                       <Bar dataKey="revenue" name="Revenue" fill="url(#revenueGrad)" radius={[6, 6, 2, 2]} maxBarSize={40} />
                       <Line type="monotone" dataKey="netProfit" name={canSeeExpenses ? 'Net Profit' : 'Profit'} stroke="#8b5cf6" strokeWidth={2.5}
                         dot={{ r: 3, fill: '#8b5cf6', strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                      {canSeeExpenses && (
+                        <Line type="monotone" dataKey="expenses" name="Expenses" stroke="#ef4444" strokeWidth={2.5}
+                          strokeDasharray="4 3" dot={{ r: 3, fill: '#ef4444', strokeWidth: 0 }} activeDot={{ r: 5 }} />
+                      )}
                     </ComposedChart>
                   </ResponsiveContainer>
                 )}

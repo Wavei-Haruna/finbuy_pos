@@ -25,6 +25,7 @@ const fmt = (v: number) => `₵${v.toLocaleString(undefined, { maximumFractionDi
 
 const CATEGORY_COLORS: Record<ExpenseCategory, string> = {
   salaries:    '#ef4444',
+ damages:     '#f97316',
   rent:        '#f59e0b',
   utilities:   '#06b6d4',
   supplies:    '#3b82f6',

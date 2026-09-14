@@ -42,15 +42,36 @@ export interface SalesRecord {
   receiptNo:     string;
 }
 
+// ── DAMAGES ─────────────────────────────────────────────────────────────────
+// Recording a damage deducts the product's quantity (same as a sale would,
+// minus the revenue) AND creates a linked Expense (category: 'damages') so
+// the loss shows up in net profit automatically. expenseId ties the two
+// records together so a delete can cleanly reverse both sides.
+
 export interface DamageRecord {
-  id:         string;
-  productId:  string;
-  quantity:   number;
-  reason:     string;
-  reportedBy: string;
-  reportedAt: Date;
-  notes?:     string;
+  id:          string;
+  businessId:  string;
+  productId:   string;
+  productName: string;  // snapshot — survives product edits/renames
+  productSku:  string;  // snapshot
+  quantity:    number;
+  unitCost:    number;  // product.costPrice at time of damage
+  totalCost:   number;  // quantity * unitCost — mirrored as the linked expense amount
+  reason:      string;
+  expenseId:   string;  // the Expense doc this damage created
+  reportedBy:  string;
+  reportedAt:  Date;
+  notes?:      string;
 }
+
+export const DAMAGE_REASONS = [
+  'Broken / Physical Damage',
+  'Expired',
+  'Water Damage',
+  'Lost / Theft',
+  'Defective Return',
+  'Other',
+] as const;
 
 export interface StockAlert {
   id:              string;
@@ -64,7 +85,9 @@ export interface StockAlert {
 // ── EXPENSES ────────────────────────────────────────────────────────────────
 // Powers weekly/monthly/yearly expense tracking (salaries, rent, utilities,
 // etc.) so the dashboard can show true net profit, not just revenue minus
-// cost of goods sold.
+// cost of goods sold. 'damages' is a system-linked category — entries in it
+// are normally created automatically by the Damages page, not typed in by
+// hand, but it stays a normal category so reports/breakdowns just work.
 
 export type ExpenseCategory =
   | 'salaries'
@@ -74,6 +97,7 @@ export type ExpenseCategory =
   | 'marketing'
   | 'transport'
   | 'maintenance'
+  | 'damages'
   | 'other';
 
 export type ExpenseFrequency = 'one-time' | 'weekly' | 'monthly' | 'yearly';
@@ -89,6 +113,7 @@ export interface Expense {
   endDate:     Date | null;  // null = still active (recurring only; ignored for one-time)
   recordedBy:  string;
   createdAt:   Date;
+  linkedDamageId?: string;   // set when this expense was auto-created by a damage record
 }
 
 export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
@@ -99,6 +124,7 @@ export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   marketing:   'Marketing',
   transport:   'Transport',
   maintenance: 'Maintenance',
+  damages:     'Damages & Losses',
   other:       'Other',
 };
 
