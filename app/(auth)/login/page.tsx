@@ -1,29 +1,42 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { db } from '@/lib/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import {
-  Loader2, Mail, Lock, Hash, Store, ArrowRight, ArrowLeft,
-  ShieldCheck, Users, Eye, EyeOff,
-} from 'lucide-react';
+import { Loader2, ArrowRight, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { saveStaffSession } from '@/lib/staff-auth';
 
 type Mode = 'select' | 'admin' | 'staff';
 
+// Change these if your file or route names are different
+const LOGO_SRC = '/logo.png';
+const FORGOT_PASSWORD_HREF = '/forgot-password';
+const SIGNUP_HREF = '/signup';
+
+const inputClass =
+  'w-full h-12 px-4 rounded-xl border border-border bg-muted text-sm font-medium text-foreground ' +
+  'placeholder:text-muted-foreground placeholder:font-normal outline-none transition ' +
+  'focus:border-ring focus:bg-card focus:ring-4 focus:ring-[hsl(var(--ring)/0.2)] ' +
+  'disabled:opacity-50 disabled:cursor-not-allowed';
+
+const linkClass =
+  'font-semibold text-primary underline underline-offset-4 hover:opacity-80 transition-opacity';
+
 export default function LoginPage() {
   const { login, user } = useAuth();
-  const router    = useRouter();
+  const router = useRouter();
 
-  // Start on the "choose your type" screen. The actual login form
+  // Start on the "choose how to sign in" screen. The actual login form
   // only appears after the user picks admin or staff.
-  const [mode,           setMode]           = useState<Mode>('select');
-  const [loading,        setLoading]        = useState(false);
-  const [error,          setError]          = useState('');
-  const [showPwd,        setShowPwd]        = useState(false);
+  const [mode, setMode] = useState<Mode>('select');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [showPwd, setShowPwd] = useState(false);
   const [loginAttempted, setLoginAttempted] = useState(false);
 
   // Redirect only AFTER onAuthStateChanged has fully set the user
@@ -36,41 +49,46 @@ export default function LoginPage() {
   }, [user, loginAttempted, router]);
 
   // Admin fields
-  const [email,    setEmail]    = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
   // Staff fields
   const [bizName, setBizName] = useState('');
-  const [bizId,   setBizId]   = useState('');
+  const [bizId, setBizId] = useState('');
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(''); setLoading(true);
+    setError('');
+    setLoading(true);
     try {
       await login(email, password);
       setLoginAttempted(true); // useEffect will redirect once user is ready
     } catch (err: any) {
-      const msg = err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password'
-        ? 'Incorrect email or password.'
-        : err.code === 'auth/user-not-found'
-          ? 'No account found with this email.'
-          : err.code === 'auth/too-many-requests'
-            ? 'Too many attempts. Try again later.'
-            : 'Sign in failed. Please try again.';
+      const msg =
+        err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password'
+          ? 'Incorrect email or password.'
+          : err.code === 'auth/user-not-found'
+            ? 'No account found with this email.'
+            : err.code === 'auth/too-many-requests'
+              ? 'Too many attempts. Try again later.'
+              : 'Sign in failed. Please try again.';
       setError(msg);
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleStaffLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(''); setLoading(true);
+    setError('');
+    setLoading(true);
     try {
       const snap = await getDocs(
         query(collection(db, 'businesses'), where('businessId', '==', bizId.trim().toUpperCase()))
       );
       if (snap.empty) throw new Error('Business ID not found. Check with your admin.');
 
-      const biz  = snap.docs[0];
+      const biz = snap.docs[0];
       const data = biz.data();
 
       if (data.name.toLowerCase().trim() !== bizName.toLowerCase().trim()) {
@@ -78,195 +96,237 @@ export default function LoginPage() {
       }
 
       saveStaffSession({
-        businessId:   biz.id,
+        businessId: biz.id,
         businessName: data.name,
         businessCode: data.businessId,
-        loginTime:    new Date().toISOString(),
+        loginTime: new Date().toISOString(),
       });
 
       router.push('/staff/sales');
     } catch (err: any) {
       setError(err.message || 'Login failed. Try again.');
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Picking a type takes you TO that login form (like navigating to a
-  // dedicated page). Going back resets the form state for that type.
-  const chooseMode = (m: Exclude<Mode, 'select'>) => { setError(''); setMode(m); };
-  const goBack      = () => {
+  // Picking a type takes you TO that login form. Going back resets the
+  // form state for that type.
+  const chooseMode = (m: Exclude<Mode, 'select'>) => {
     setError('');
-    setEmail(''); setPassword('');
-    setBizName(''); setBizId('');
+    setMode(m);
+  };
+  const goBack = () => {
+    setError('');
+    setEmail('');
+    setPassword('');
+    setBizName('');
+    setBizId('');
     setMode('select');
   };
 
+  const subtitle =
+    mode === 'select'
+      ? 'How would you like to sign in?'
+      : mode === 'admin'
+        ? 'Sign in with your email and password'
+        : 'Enter your business name and ID';
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a] flex items-center justify-center p-4">
-      {/* Background glow */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(34,197,94,0.07),transparent_60%)] pointer-events-none" />
+    <div className="min-h-screen bg-muted flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-md">
 
-      <div className="relative w-full max-w-md">
-
-        {/* ── LOGO ── */}
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}
-          className="text-center mb-8">
-          <div className="w-14 h-14 bg-gradient-to-br from-green-400 to-green-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl shadow-green-500/25">
-            <ShieldCheck className="w-7 h-7 text-white" />
+        {/* ── LOGO + HEADING ── */}
+        <motion.div
+          initial={{ opacity: 0, y: -16 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center mb-8"
+        >
+          {/* White plate only in dark mode so the dark green wordmark stays readable */}
+          <div className="inline-block rounded-2xl dark:bg-white dark:px-5 dark:py-3 mb-6">
+            <Image
+              src={LOGO_SRC}
+              alt="Kashora - Run your business better"
+              width={220}
+              height={76}
+              priority
+              className="h-auto w-[200px] sm:w-[220px] mix-blend-multiply dark:mix-blend-normal"
+            />
           </div>
-          <h1 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight">Welcome back</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {mode === 'select' ? 'How would you like to sign in?' : 'Sign in to your dashboard'}
-          </p>
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-foreground">
+            Welcome back
+          </h1>
+          <p className="text-sm text-muted-foreground mt-2">{subtitle}</p>
         </motion.div>
 
-        {/* ── CARD ── */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}
-          className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-xl overflow-hidden">
+        <AnimatePresence mode="wait">
 
-          <AnimatePresence mode="wait">
-
-            {/* ── STEP 1: CHOOSE USER TYPE ── */}
-            {mode === 'select' && (
-              <motion.div key="select"
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                transition={{ duration: 0.18 }} className="p-6 space-y-3">
-
+          {/* ── STEP 1: CHOOSE HOW TO SIGN IN ── */}
+          {mode === 'select' && (
+            <motion.div
+              key="select"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+            >
+              <div className="space-y-3">
                 <ChoiceButton
-                  icon={<ShieldCheck className="w-5 h-5" />}
-                  title="Admin"
-                  subtitle="Full access — manage inventory, reports & settings"
+                  title="Owner or admin"
+                  subtitle="Inventory, sales, reports and settings"
                   onClick={() => chooseMode('admin')}
                 />
                 <ChoiceButton
-                  icon={<Users className="w-5 h-5" />}
-                  title="Staff Login"
-                  subtitle="Record sales for your assigned business"
+                  title="Cashier or staff"
+                  subtitle="Sign in with your business name and ID"
                   onClick={() => chooseMode('staff')}
                 />
-              </motion.div>
-            )}
+              </div>
 
-            {/* ── STEP 2: ADMIN FORM ── */}
-            {mode === 'admin' && (
-              <motion.div key="admin"
-                initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -16 }} transition={{ duration: 0.18 }}
-                className="p-6">
+              <div className="mt-8 space-y-2 text-center text-sm">
+                <p>
+                  <Link href={FORGOT_PASSWORD_HREF} className={linkClass}>
+                    Forgot password?
+                  </Link>
+                </p>
+                <p className="text-muted-foreground">
+                  New here?{' '}
+                  <Link href={SIGNUP_HREF} className={linkClass}>
+                    Start your free trial
+                  </Link>
+                </p>
+              </div>
+            </motion.div>
+          )}
 
-                <BackLink onClick={goBack} />
+          {/* ── STEP 2: ADMIN FORM ── */}
+          {mode === 'admin' && (
+            <motion.div
+              key="admin"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -16 }}
+              transition={{ duration: 0.18 }}
+              className="rounded-2xl border border-border bg-card p-6 shadow-sm"
+            >
+              <BackLink onClick={goBack} />
 
-                <form onSubmit={handleAdminLogin} className="space-y-4">
-                  <Field label="Email Address" icon={<Mail className="w-3.5 h-3.5" />}>
-                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@example.com" required disabled={loading}
-                      className="input-base" autoComplete="email" />
-                  </Field>
+              <form onSubmit={handleAdminLogin} className="space-y-4">
+                <Field label="Email address" htmlFor="email">
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    required
+                    disabled={loading}
+                    className={inputClass}
+                    autoComplete="email"
+                  />
+                </Field>
 
-                  <Field label="Password" icon={<Lock className="w-3.5 h-3.5" />}>
-                    <div className="relative">
-                      <input type={showPwd ? 'text' : 'password'} value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••" required disabled={loading}
-                        className="input-base pr-11" autoComplete="current-password" />
-                      <button type="button" tabIndex={-1}
-                        onClick={() => setShowPwd(!showPwd)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
-                        {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </Field>
+                <Field label="Password" htmlFor="password">
+                  <div className="relative">
+                    <input
+                      id="password"
+                      type={showPwd ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                      disabled={loading}
+                      className={`${inputClass} pr-11`}
+                      autoComplete="current-password"
+                    />
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() => setShowPwd(!showPwd)}
+                      aria-label={showPwd ? 'Hide password' : 'Show password'}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </Field>
 
-                  <ErrorBox error={error} />
-                  <SubmitBtn loading={loading} label="Sign in" />
-                </form>
-              </motion.div>
-            )}
+                <ErrorBox error={error} />
+                <SubmitBtn loading={loading} label="Sign in" />
+              </form>
+            </motion.div>
+          )}
 
-            {/* ── STEP 2: STAFF FORM ── */}
-            {mode === 'staff' && (
-              <motion.div key="staff"
-                initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -16 }} transition={{ duration: 0.18 }}
-                className="p-6">
+          {/* ── STEP 2: STAFF FORM ── */}
+          {mode === 'staff' && (
+            <motion.div
+              key="staff"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -16 }}
+              transition={{ duration: 0.18 }}
+              className="rounded-2xl border border-border bg-card p-6 shadow-sm"
+            >
+              <BackLink onClick={goBack} />
 
-                <BackLink onClick={goBack} />
+              <form onSubmit={handleStaffLogin} className="space-y-4">
+                <Field label="Business name" htmlFor="bizName">
+                  <input
+                    id="bizName"
+                    type="text"
+                    value={bizName}
+                    onChange={(e) => setBizName(e.target.value)}
+                    placeholder="e.g. Kumasi Branch"
+                    required
+                    disabled={loading}
+                    className={inputClass}
+                  />
+                </Field>
 
-                <form onSubmit={handleStaffLogin} className="space-y-4">
-                  <Field label="Business Name" icon={<Store className="w-3.5 h-3.5" />}>
-                    <input type="text" value={bizName} onChange={(e) => setBizName(e.target.value)}
-                      placeholder="e.g. Kumasi Branch" required disabled={loading}
-                      className="input-base" />
-                  </Field>
+                <Field label="Business ID" htmlFor="bizId" hint="Provided by your admin">
+                  <input
+                    id="bizId"
+                    type="text"
+                    value={bizId}
+                    onChange={(e) => setBizId(e.target.value.toUpperCase())}
+                    placeholder="e.g. KSI-001"
+                    required
+                    disabled={loading}
+                    className={`${inputClass} font-bold tracking-widest tabular-nums`}
+                  />
+                </Field>
 
-                  <Field label="Business ID" icon={<Hash className="w-3.5 h-3.5" />}
-                    hint="Provided by your admin">
-                    <input type="text" value={bizId}
-                      onChange={(e) => setBizId(e.target.value.toUpperCase())}
-                      placeholder="e.g. KSI-001" required disabled={loading}
-                      className="input-base font-mono font-bold tracking-widest" />
-                  </Field>
+                <ErrorBox error={error} />
+                <SubmitBtn loading={loading} label="Access sales dashboard" />
+              </form>
+            </motion.div>
+          )}
 
-                  <ErrorBox error={error} />
-                  <SubmitBtn loading={loading} label="Access Sales Dashboard" />
-                </form>
-              </motion.div>
-            )}
+        </AnimatePresence>
 
-          </AnimatePresence>
-        </motion.div>
-
-        <p className="text-center text-xs text-gray-400 mt-6">
-          © {new Date().getFullYear()} Admin Dashboard · All rights reserved
+        <p className="text-center text-xs text-muted-foreground mt-8">
+          © {new Date().getFullYear()} Kashora · Run your business better
         </p>
       </div>
-
-      <style jsx global>{`
-        .input-base {
-          width: 100%; height: 44px;
-          padding: 0 14px;
-          border-radius: 12px;
-          border: 2px solid rgb(229 231 235);
-          background: rgb(249 250 251);
-          color: rgb(17 24 39);
-          font-size: 14px; font-weight: 500;
-          outline: none;
-          transition: border-color 0.15s, box-shadow 0.15s;
-        }
-        .dark .input-base {
-          border-color: rgb(55 65 81);
-          background: rgb(31 41 55);
-          color: rgb(255 255 255);
-        }
-        .input-base:focus {
-          border-color: rgb(34 197 94);
-          box-shadow: 0 0 0 3px rgba(34,197,94,0.12);
-        }
-        .input-base:disabled { opacity: 0.5; cursor: not-allowed; }
-        .input-base::placeholder { color: rgb(156 163 175); font-weight: 400; }
-      `}</style>
     </div>
   );
 }
 
-function ChoiceButton({ icon, title, subtitle, onClick }: {
-  icon: React.ReactNode; title: string; subtitle: string; onClick: () => void;
+function ChoiceButton({ title, subtitle, onClick }: {
+  title: string; subtitle: string; onClick: () => void;
 }) {
   return (
     <motion.button
       type="button"
       onClick={onClick}
       whileTap={{ scale: 0.98 }}
-      whileHover={{ scale: 1.01 }}
-      className="w-full text-left flex items-center gap-4 p-4 rounded-xl border-2 border-gray-200 dark:border-gray-800 hover:border-green-500 dark:hover:border-green-500 bg-gray-50 dark:bg-gray-800/50 transition-colors group"
+      className="group w-full text-left flex items-center gap-4 rounded-2xl border border-border bg-card px-5 py-4 shadow-sm transition-colors hover:border-primary"
     >
-      <div className="w-10 h-10 rounded-xl bg-green-500/10 text-green-600 dark:text-green-400 flex items-center justify-center flex-shrink-0 group-hover:bg-green-500 group-hover:text-white transition-colors">
-        {icon}
-      </div>
       <div className="flex-1 min-w-0">
-        <p className="font-bold text-sm text-gray-900 dark:text-white">{title}</p>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{subtitle}</p>
+        <p className="font-heading text-[15px] font-bold text-foreground">{title}</p>
+        <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
       </div>
-      <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-green-500 flex-shrink-0 transition-colors" />
+      <ArrowRight className="w-4 h-4 flex-shrink-0 text-muted-foreground transition-all group-hover:translate-x-0.5 group-hover:text-primary" />
     </motion.button>
   );
 }
@@ -276,23 +336,23 @@ function BackLink({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 mb-5 transition-colors"
+      className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground mb-5 transition-colors"
     >
-      <ArrowLeft className="w-3.5 h-3.5" /> Back
+      <ArrowLeft className="w-4 h-4" /> Back
     </button>
   );
 }
 
-function Field({ label, icon, hint, children }: {
-  label: string; icon: React.ReactNode; hint?: string; children: React.ReactNode;
+function Field({ label, htmlFor, hint, children }: {
+  label: string; htmlFor: string; hint?: string; children: React.ReactNode;
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
-        {icon} {label}
+      <label htmlFor={htmlFor} className="text-sm font-semibold text-foreground">
+        {label}
       </label>
       {children}
-      {hint && <p className="text-[11px] text-gray-400 flex items-center gap-1">ℹ {hint}</p>}
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -301,9 +361,13 @@ function ErrorBox({ error }: { error: string }) {
   return (
     <AnimatePresence>
       {error && (
-        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-          exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-          <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-sm font-medium">
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          exit={{ opacity: 0, height: 0 }}
+          className="overflow-hidden"
+        >
+          <div className="px-4 py-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium">
             {error}
           </div>
         </motion.div>
@@ -314,11 +378,21 @@ function ErrorBox({ error }: { error: string }) {
 
 function SubmitBtn({ loading, label }: { loading: boolean; label: string }) {
   return (
-    <motion.button type="submit" disabled={loading} whileTap={{ scale: 0.97 }}
-      className="w-full h-11 rounded-xl bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 transition-colors shadow-lg shadow-green-500/20 mt-1">
-      {loading
-        ? <Loader2 className="w-4 h-4 animate-spin" />
-        : <>{label} <ArrowRight className="w-4 h-4" /></>}
+    <motion.button
+      type="submit"
+      disabled={loading}
+      whileTap={{ scale: 0.98 }}
+      className="mt-1 w-full h-12 rounded-xl bg-primary text-primary-foreground font-bold text-sm flex items-center justify-center gap-2 transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      {loading ? (
+        <Loader2 className="w-4 h-4 animate-spin" />
+      ) : (
+        <>
+          {label}
+          {/* Lime arrow on the forest button in light mode */}
+          <ArrowRight className="w-4 h-4 text-[hsl(var(--brand-lime))] dark:text-primary-foreground" />
+        </>
+      )}
     </motion.button>
   );
 }
