@@ -5,23 +5,52 @@ import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { useBusiness } from '@/lib/business-context';
-import { Building2, X, ChevronDown, Check } from 'lucide-react';
+import {
+  X,
+  ChevronDown,
+  Check,
+  Plus,
+  LogOut,
+  LayoutDashboard,
+  Package,
+  ShoppingCart,
+  Wrench,
+  Wallet,
+  PackageX,
+  BellRing,
+  BarChart3,
+  Store,
+  Settings,
+  type LucideIcon,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
 
-const navigationItems = [
-  { label: 'Dashboard',    href: '/dashboard',            roles: ['admin', 'sales', 'manager'] },
-  { label: 'Products',     href: '/dashboard/products',   roles: ['admin', 'sales', 'manager'] },
-  { label: 'Record Sale',  href: '/dashboard/sales',      roles: ['admin', 'sales'] },
-  { label: 'Services',     href: '/dashboard/services',   roles: ['admin', 'sales'] },
-  { label: 'Expenses',     href: '/dashboard/expenses',   roles: ['admin', 'manager'] },
-  { label: 'Damages',      href: '/dashboard/damages',    roles: ['admin', 'manager'] },
-  { label: 'Stock Alerts', href: '/dashboard/alerts',     roles: ['admin', 'manager'] },
-  { label: 'Reports',      href: '/dashboard/reports',    roles: ['admin', 'manager'] },
-  { label: 'Businesses',   href: '/dashboard/businesses', roles: ['admin'] },
-  { label: 'Settings',     href: '/dashboard/settings',   roles: ['admin'] },
+const navigationItems: {
+  label: string;
+  href: string;
+  icon: LucideIcon;
+  roles: string[];
+}[] = [
+  { label: 'Dashboard',    href: '/dashboard',            icon: LayoutDashboard, roles: ['admin', 'sales', 'manager'] },
+  { label: 'Products',     href: '/dashboard/products',   icon: Package,         roles: ['admin', 'sales', 'manager'] },
+  { label: 'Record Sale',  href: '/dashboard/sales',      icon: ShoppingCart,    roles: ['admin', 'sales'] },
+  { label: 'Services',     href: '/dashboard/services',   icon: Wrench,          roles: ['admin', 'sales'] },
+  { label: 'Expenses',     href: '/dashboard/expenses',   icon: Wallet,          roles: ['admin', 'manager'] },
+  { label: 'Damages',      href: '/dashboard/damages',    icon: PackageX,        roles: ['admin', 'manager'] },
+  { label: 'Stock Alerts', href: '/dashboard/alerts',     icon: BellRing,        roles: ['admin', 'manager'] },
+  { label: 'Reports',      href: '/dashboard/reports',    icon: BarChart3,       roles: ['admin', 'manager'] },
+  { label: 'Businesses',   href: '/dashboard/businesses', icon: Store,           roles: ['admin'] },
+  { label: 'Settings',     href: '/dashboard/settings',   icon: Settings,        roles: ['admin'] },
 ];
+
+// Slim dark scrollbar so the nav does not show a bright white track
+const slimScroll =
+  '[scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.18)_transparent] ' +
+  '[&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent ' +
+  '[&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20 ' +
+  'hover:[&::-webkit-scrollbar-thumb]:bg-white/30';
 
 interface SidebarProps {
   open: boolean;
@@ -41,22 +70,22 @@ function SidebarInner({ onClose }: { onClose: () => void }) {
   return (
     <aside className="flex h-full w-[232px] flex-col border-r border-white/5 bg-[hsl(var(--brand-deep))] text-white">
       {/* ── LOGO ── */}
-      <div className="flex items-center justify-between px-5 pb-4 pt-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[10px] bg-white p-1">
-            <Image
-              src="/logo.png"
-              alt="Kashora"
-              width={28}
-              height={28}
-              className="h-full w-full object-contain"
-              priority
-            />
-          </div>
-          <span className="font-heading text-[22px] font-semibold leading-none tracking-tight text-white">
-            Kashora
-          </span>
-        </div>
+      <div className="flex items-center justify-between px-4 pb-3 pt-5">
+        {/* White plate so the dark green wordmark stays readable */}
+        <Link
+          href="/dashboard"
+          aria-label="Kashora dashboard"
+          className="flex h-11 items-center rounded-xl bg-white px-3"
+        >
+          <Image
+            src="/logo.png"
+            alt="Kashora"
+            width={120}
+            height={36}
+            className="h-7 w-auto object-contain"
+            priority
+          />
+        </Link>
         <button
           onClick={onClose}
           aria-label="Close menu"
@@ -71,10 +100,11 @@ function SidebarInner({ onClose }: { onClose: () => void }) {
         <div className="px-3 pb-3">
           <button
             onClick={() => setBizDropOpen(!bizDropOpen)}
+            aria-expanded={bizDropOpen}
             className="flex w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 transition-colors hover:border-[hsl(var(--brand-lime)/0.4)]"
           >
             <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--brand-lime))] text-xs font-black text-[hsl(var(--brand-deep))]">
-              {activeBusiness?.name.charAt(0) ?? '?'}
+              {activeBusiness?.name.charAt(0).toUpperCase() ?? '?'}
             </div>
             <div className="min-w-0 flex-1 text-left">
               <p className="truncate text-[13px] font-bold leading-tight text-white">
@@ -99,47 +129,58 @@ function SidebarInner({ onClose }: { onClose: () => void }) {
                 animate={{ opacity: 1, y: 0, scaleY: 1 }}
                 exit={{ opacity: 0, y: -4, scaleY: 0.95 }}
                 transition={{ duration: 0.15 }}
-                className="mt-1 origin-top overflow-hidden rounded-xl border border-white/10 bg-[hsl(var(--card))] shadow-xl"
+                className="mt-1.5 origin-top overflow-hidden rounded-xl border border-white/15 bg-[hsl(var(--brand-deep))] shadow-xl shadow-black/30"
               >
-                <div className="max-h-44 overflow-y-auto p-1">
-                  {businesses.map((biz) => {
-                    const isActive = activeBusiness?.id === biz.id;
-                    return (
-                      <button
-                        key={biz.id}
-                        onClick={() => {
-                          setActiveBusiness(biz);
-                          setBizDropOpen(false);
-                        }}
-                        className={cn(
-                          'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors',
-                          isActive
-                            ? 'bg-white/10 text-white'
-                            : 'text-white/70 hover:bg-white/5 hover:text-white'
-                        )}
-                      >
-                        <span className="flex-1 truncate text-[13px] font-semibold">
-                          {biz.name}
-                        </span>
-                        {isActive && (
-                          <Check className="h-3.5 w-3.5 flex-shrink-0 text-[hsl(var(--brand-lime))]" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="border-t border-white/10 p-1">
-                  <Link
-                    href="/dashboard/businesses"
-                    onClick={() => {
-                      setBizDropOpen(false);
-                      onClose();
-                    }}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[11px] font-bold text-[hsl(var(--brand-lime))] transition-colors hover:bg-white/5"
-                  >
-                    <Building2 className="h-3 w-3" />
-                    Add New Business
-                  </Link>
+                {/* Dark panel with a light tint, so white text always has contrast */}
+                <div className="bg-white/[0.06]">
+                  <div className={cn('max-h-44 space-y-0.5 overflow-y-auto p-1.5', slimScroll)}>
+                    {businesses.map((biz) => {
+                      const isActive = activeBusiness?.id === biz.id;
+                      return (
+                        <button
+                          key={biz.id}
+                          onClick={() => {
+                            setActiveBusiness(biz);
+                            setBizDropOpen(false);
+                          }}
+                          className={cn(
+                            'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors',
+                            isActive
+                              ? 'bg-white/10 text-white'
+                              : 'text-white/75 hover:bg-white/[0.07] hover:text-white'
+                          )}
+                        >
+                          <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-white/10 text-[11px] font-black text-white">
+                            {biz.name.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[13px] font-semibold leading-tight">
+                              {biz.name}
+                            </span>
+                            <span className="block font-mono text-[10px] text-white/45">
+                              {biz.businessId}
+                            </span>
+                          </span>
+                          {isActive && (
+                            <Check className="h-3.5 w-3.5 flex-shrink-0 text-[hsl(var(--brand-lime))]" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="border-t border-white/10 p-1.5">
+                    <Link
+                      href="/dashboard/businesses"
+                      onClick={() => {
+                        setBizDropOpen(false);
+                        onClose();
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-[12px] font-bold text-[hsl(var(--brand-lime))] transition-colors hover:bg-white/[0.07]"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      Add new business
+                    </Link>
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -148,8 +189,9 @@ function SidebarInner({ onClose }: { onClose: () => void }) {
       )}
 
       {/* ── NAV ── */}
-      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-2">
+      <nav className={cn('min-h-0 flex-1 space-y-0.5 overflow-y-auto px-3 pb-2', slimScroll)}>
         {visibleItems.map((item) => {
+          const Icon = item.icon;
           const isActive =
             pathname === item.href ||
             (item.href !== '/dashboard' && pathname.startsWith(item.href + '/'));
@@ -159,8 +201,9 @@ function SidebarInner({ onClose }: { onClose: () => void }) {
               key={item.href}
               href={item.href}
               onClick={onClose}
+              aria-current={isActive ? 'page' : undefined}
               className={cn(
-                'relative flex items-center rounded-xl px-3 py-2.5 text-[15px] transition-colors duration-200',
+                'relative flex items-center gap-3 rounded-xl px-3 py-2 text-[14.5px] transition-colors duration-200',
                 isActive
                   ? 'font-bold text-white'
                   : 'font-medium text-white/60 hover:bg-white/[0.05] hover:text-white'
@@ -173,14 +216,20 @@ function SidebarInner({ onClose }: { onClose: () => void }) {
                   transition={{ type: 'spring', stiffness: 350, damping: 32 }}
                 />
               )}
-              <span className="relative z-10">{item.label}</span>
+              <Icon
+                className={cn(
+                  'relative z-10 h-[18px] w-[18px] flex-shrink-0 transition-colors',
+                  isActive ? 'text-[hsl(var(--brand-lime))]' : 'text-white/50'
+                )}
+              />
+              <span className="relative z-10 truncate">{item.label}</span>
             </Link>
           );
         })}
       </nav>
 
       {/* ── USER + LOGOUT ── */}
-      <div className="space-y-3 p-3 pb-4">
+      <div className="space-y-3 border-t border-white/5 p-3 pb-4">
         <div className="flex items-center gap-3 px-2">
           <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-[hsl(var(--brand-lime))] text-sm font-black text-[hsl(var(--brand-deep))]">
             {user?.name?.charAt(0).toUpperCase() || 'U'}
@@ -195,8 +244,9 @@ function SidebarInner({ onClose }: { onClose: () => void }) {
 
         <button
           onClick={logout}
-          className="w-full rounded-xl border border-[hsl(var(--brand-lime)/0.6)] py-2.5 text-sm font-bold text-[hsl(var(--brand-lime))] transition-colors hover:bg-[hsl(var(--brand-lime)/0.1)]"
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-[hsl(var(--brand-lime)/0.6)] py-2.5 text-sm font-bold text-[hsl(var(--brand-lime))] transition-colors hover:bg-[hsl(var(--brand-lime)/0.1)]"
         >
+          <LogOut className="h-4 w-4" />
           Log out
         </button>
       </div>
