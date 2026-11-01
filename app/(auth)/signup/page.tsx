@@ -45,15 +45,23 @@ const STEPS: { n: Step; label: string }[] = [
   { n: 3, label: 'Make your first sale' },
 ];
 
-const INDUSTRIES = ['Retail', 'Food and drink', 'Fashion', 'Electronics', 'Services'];
+// Matches the shop types on the home page
+const INDUSTRIES = [
+  'Supermarket',
+  'Mini-mart',
+  'Provision store',
+  'Wholesale',
+  'Electronics',
+  'Other',
+];
 
 const PRODUCT_METHODS: { id: ProductMethod; title: string; subtitle: string }[] = [
-  { id: 'add', title: 'Add one by one', subtitle: 'Name, price, stock' },
   { id: 'scan', title: 'Scan barcodes', subtitle: 'Use your phone camera' },
+  { id: 'add', title: 'Add one by one', subtitle: 'Name, price, stock' },
 ];
 
 const inputClass =
-  'w-full h-12 px-4 rounded-xl border border-border bg-card text-sm font-medium text-foreground ' +
+  'w-full h-11 px-4 rounded-xl border border-border bg-card text-sm font-medium text-foreground ' +
   'placeholder:text-muted-foreground placeholder:font-normal outline-none transition ' +
   'focus:border-ring focus:ring-4 focus:ring-ring/20 disabled:opacity-50 disabled:cursor-not-allowed';
 
@@ -106,7 +114,7 @@ export default function SignupPage() {
   const [industry, setIndustry] = useState(INDUSTRIES[0]);
 
   // Step 2
-  const [method, setMethod] = useState<ProductMethod>('add');
+  const [method, setMethod] = useState<ProductMethod>('scan');
 
   // Created business (for step 3)
   const [created, setCreated] = useState<{ id: string; name: string; code: string } | null>(null);
@@ -253,7 +261,7 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-muted lg:grid lg:grid-cols-[minmax(380px,0.85fr)_1.15fr]">
+    <div className="min-h-screen bg-muted lg:grid lg:grid-cols-[minmax(380px,0.8fr)_1.2fr]">
       <SidePanel step={step} />
 
       <main className="flex min-h-screen flex-col px-5 sm:px-10">
@@ -274,7 +282,7 @@ export default function SignupPage() {
           </Link>
         </div>
 
-        <div className="mx-auto flex w-full max-w-[460px] flex-1 flex-col justify-center py-10">
+        <div className="mx-auto flex w-full max-w-[460px] flex-1 flex-col justify-center py-8 lg:max-w-[640px]">
           <ProgressBars step={step} />
 
           <AnimatePresence mode="wait">
@@ -287,84 +295,87 @@ export default function SignupPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
                 transition={{ duration: 0.2 }}
-                className="mt-8"
+                className="mt-6"
                 noValidate
               >
-                <h1 className="text-3xl font-extrabold text-foreground sm:text-4xl">
+                <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
                   Tell us about your business
                 </h1>
-                <p className="mt-2 text-sm text-muted-foreground">
+                <p className="mt-1.5 text-sm text-muted-foreground">
                   You can change all of this later.
                 </p>
 
-                <div className="mt-8 space-y-5">
-                  {needsAccount && (
-                    <>
-                      <Field label="Your name" htmlFor="fullName">
-                        <input
-                          id="fullName"
-                          type="text"
-                          value={fullName}
-                          onChange={(e) => setFullName(e.target.value)}
-                          placeholder="e.g. Ama Mensah"
-                          disabled={loading}
-                          className={inputClass}
-                          autoComplete="name"
-                        />
-                      </Field>
-
-                      <Field label="Email address" htmlFor="email">
-                        <input
-                          id="email"
-                          type="email"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          placeholder="you@example.com"
-                          disabled={loading}
-                          className={inputClass}
-                          autoComplete="email"
-                        />
-                      </Field>
-
-                      <Field label="Password" htmlFor="password" hint="At least 6 characters">
-                        <div className="relative">
+                <div className="mt-6 space-y-4">
+                  {/* Two fields per row on desktop so the whole form fits on one screen */}
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {needsAccount && (
+                      <>
+                        <Field label="Your name" htmlFor="fullName">
                           <input
-                            id="password"
-                            type={showPwd ? 'text' : 'password'}
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            placeholder="••••••••"
+                            id="fullName"
+                            type="text"
+                            value={fullName}
+                            onChange={(e) => setFullName(e.target.value)}
+                            placeholder="e.g. Ama Mensah"
                             disabled={loading}
-                            className={`${inputClass} pr-11`}
-                            autoComplete="new-password"
+                            className={inputClass}
+                            autoComplete="name"
                           />
-                          <button
-                            type="button"
-                            tabIndex={-1}
-                            onClick={() => setShowPwd(!showPwd)}
-                            aria-label={showPwd ? 'Hide password' : 'Show password'}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
-                          >
-                            {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                          </button>
-                        </div>
+                        </Field>
+
+                        <Field label="Email address" htmlFor="email">
+                          <input
+                            id="email"
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="you@example.com"
+                            disabled={loading}
+                            className={inputClass}
+                            autoComplete="email"
+                          />
+                        </Field>
+
+                        <Field label="Password" htmlFor="password">
+                          <div className="relative">
+                            <input
+                              id="password"
+                              type={showPwd ? 'text' : 'password'}
+                              value={password}
+                              onChange={(e) => setPassword(e.target.value)}
+                              placeholder="At least 6 characters"
+                              disabled={loading}
+                              className={`${inputClass} pr-11`}
+                              autoComplete="new-password"
+                            />
+                            <button
+                              type="button"
+                              tabIndex={-1}
+                              onClick={() => setShowPwd(!showPwd)}
+                              aria-label={showPwd ? 'Hide password' : 'Show password'}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                            >
+                              {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        </Field>
+                      </>
+                    )}
+
+                    <div className={needsAccount ? '' : 'sm:col-span-2'}>
+                      <Field label="Business name" htmlFor="bizName">
+                        <input
+                          id="bizName"
+                          type="text"
+                          value={bizName}
+                          onChange={(e) => setBizName(e.target.value)}
+                          placeholder="e.g. Kumasi Fresh Supermarket"
+                          disabled={loading}
+                          className={inputClass}
+                        />
                       </Field>
-
-                      <div className="border-t border-border" />
-                    </>
-                  )}
-
-                  <Field label="Business name" htmlFor="bizName">
-                    <input
-                      id="bizName"
-                      type="text"
-                      value={bizName}
-                      onChange={(e) => setBizName(e.target.value)}
-                      placeholder="e.g. Finbuy Kumasi"
-                      disabled={loading}
-                      className={inputClass}
-                    />
-                  </Field>
+                    </div>
+                  </div>
 
                   <div className="space-y-2">
                     <p className="text-sm font-semibold text-foreground">What do you sell?</p>
@@ -378,7 +389,7 @@ export default function SignupPage() {
                             aria-pressed={active}
                             disabled={loading}
                             onClick={() => setIndustry(item)}
-                            className={`h-11 rounded-xl border px-4 text-sm font-bold transition-colors ${
+                            className={`h-10 rounded-xl border px-3.5 text-sm font-bold transition-colors ${
                               active
                                 ? 'border-primary bg-primary text-primary-foreground'
                                 : 'border-border bg-card text-foreground hover:border-primary'
@@ -426,16 +437,16 @@ export default function SignupPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
                 transition={{ duration: 0.2 }}
-                className="mt-8"
+                className="mt-6"
               >
-                <h1 className="text-3xl font-extrabold text-foreground sm:text-4xl">
+                <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
                   Add your products
                 </h1>
-                <p className="mt-2 text-sm text-muted-foreground">
+                <p className="mt-1.5 text-sm text-muted-foreground">
                   Pick the quickest way. You can add more any time.
                 </p>
 
-                <div className="mt-8 grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="How to add products">
+                <div className="mt-6 grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="How to add products">
                   {PRODUCT_METHODS.map((m) => {
                     const active = method === m.id;
                     return (
@@ -456,7 +467,7 @@ export default function SignupPage() {
                   })}
                 </div>
 
-                <div className="mt-8 flex items-center justify-between gap-3">
+                <div className="mt-6 flex items-center justify-between gap-3">
                   <button type="button" onClick={skipProducts} className={button('secondary', 'lg')}>
                     Skip for now
                   </button>
@@ -480,17 +491,17 @@ export default function SignupPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
                 transition={{ duration: 0.2 }}
-                className="mt-8"
+                className="mt-6"
               >
-                <h1 className="text-3xl font-extrabold text-foreground sm:text-4xl">
+                <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
                   Make your first sale
                 </h1>
-                <p className="mt-2 text-sm text-muted-foreground">
+                <p className="mt-1.5 text-sm text-muted-foreground">
                   Try the till. Your stock updates as soon as the sale is done.
                 </p>
 
                 {created && (
-                  <div className="mt-8 rounded-2xl border border-border bg-card p-5 shadow-sm">
+                  <div className="mt-6 rounded-2xl border border-border bg-card p-5 shadow-sm">
                     <p className="text-sm font-semibold text-muted-foreground">
                       Your business ID for {created.name}
                     </p>
@@ -513,7 +524,7 @@ export default function SignupPage() {
                   </div>
                 )}
 
-                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <button type="button" onClick={() => leaveTo(DASHBOARD_HREF)} className={button('secondary', 'lg')}>
                     Go to my dashboard
                   </button>
@@ -544,11 +555,11 @@ function SidePanel({ step }: { step: Step }) {
       </Link>
 
       <div>
-        <h2 className="text-balance text-5xl font-extrabold leading-[1.05] xl:text-6xl">
-          Your shop, <span className="text-brand-lime">open</span> in three minutes.
+        <h2 className="text-balance text-4xl font-bold leading-[1.12] tracking-tight xl:text-[2.75rem]">
+          Your supermarket, <span className="text-brand-lime">open</span> in three minutes.
         </h2>
-        <p className="mt-6 max-w-sm text-lg leading-relaxed text-white/65">
-          Sell, track stock and see your profit.
+        <p className="mt-5 max-w-sm text-lg leading-relaxed text-white/65">
+          Scan, sell, track stock and see your profit.
         </p>
 
         <ol className="mt-10 space-y-4">

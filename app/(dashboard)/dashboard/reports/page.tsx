@@ -8,18 +8,16 @@ import { useBusiness } from '@/lib/business-context';
 import { useAuth } from '@/lib/auth-context';
 import { totalExpensesInPeriod } from '@/app/(dashboard)/dashboard/expenses/expense-utils';
 import {
-  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts';
-import {
-  TrendingUp, TrendingDown, DollarSign, Package, Award,
-  BarChart3, Loader2, ArrowUpRight, ArrowDownRight,
-  ShoppingBag, Layers, Wallet, Sparkles, Minus, Banknote, ShieldAlert,
-} from 'lucide-react';
+import { BarChart3, Layers, Award, ArrowUpRight, ArrowDownRight, Minus, ShieldAlert } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { cn } from '@/lib/utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type TimeRange = 'day' | 'week' | 'month';
+type Tone = 'danger' | 'tint' | 'neutral' | 'warn';
 
 interface Stats {
   totalRevenue:    number;
@@ -50,13 +48,51 @@ const CATEGORY_LABELS: Record<string, string> = {
   'other':                     'Other',
 };
 
-const CHART_COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4'];
+// Recharts draws SVG, so these are the hex values of the brand tokens in globals.css
+// (lime 75 100% 48%, forest 163 86% 20%, emerald 146 80% 35%, leaf 98 73% 46%, deep 166 85% 8%).
+const BRAND = {
+  lime:    '#B8F500',
+  forest:  '#075F46',
+  emerald: '#12A150',
+  leaf:    '#5ECB20',
+  slate:   '#556D66',
+  deep:    '#03261E',
+};
+const CHART_COLORS = [BRAND.forest, BRAND.emerald, BRAND.leaf, BRAND.lime, BRAND.slate, BRAND.deep];
 
 const TIME_RANGES: { key: TimeRange; label: string; short: string }[] = [
   { key: 'day',   label: 'Today',      short: '1D'  },
   { key: 'week',  label: 'This Week',  short: '7D'  },
   { key: 'month', label: 'This Month', short: '30D' },
 ];
+
+// Light-card tones: each card carries its own meaning.
+const TONES: Record<Tone, { card: string; label: string; value: string; sub: string }> = {
+  danger: {
+    card:  'border-destructive/20 bg-destructive/10',
+    label: 'text-destructive/80',
+    value: 'text-destructive',
+    sub:   'text-destructive/70',
+  },
+  tint: {
+    card:  'border-[hsl(var(--brand-emerald)/0.25)] bg-accent',
+    label: 'text-accent-foreground/70',
+    value: 'text-accent-foreground',
+    sub:   'text-accent-foreground/60',
+  },
+  warn: {
+    card:  'border-amber-300/70 bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/15',
+    label: 'text-amber-800/80 dark:text-amber-300/80',
+    value: 'text-amber-900 dark:text-amber-200',
+    sub:   'text-amber-800/70 dark:text-amber-300/70',
+  },
+  neutral: {
+    card:  'border-border bg-card',
+    label: 'text-muted-foreground',
+    value: 'text-foreground',
+    sub:   'text-muted-foreground',
+  },
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -171,22 +207,40 @@ function getSaleCost(sale: SalesRecord, p?: Product): number {
   return getUnitCost(p) * sale.quantity;
 }
 
+function fmt(v: number): string {
+  const sign = v < 0 ? '-' : '';
+  const abs = Math.abs(v);
+  return abs >= 10000
+    ? `${sign}₵${(abs / 1000).toFixed(1)}K`
+    : `${sign}₵${Math.round(abs).toLocaleString()}`;
+}
+
+// ─── Small UI pieces ──────────────────────────────────────────────────────────
 const Skeleton = ({ className = '' }: { className?: string }) => (
-  <div className={`animate-pulse bg-gray-100 dark:bg-gray-800 rounded-xl ${className}`} />
+  <div className={cn('animate-pulse rounded-xl bg-muted', className)} />
 );
 
-const ComposedTooltip = ({ active, payload, label }: any) => {
+const ComposedTooltip = ({ active, payload, label, profitLabel }: any) => {
   if (!active || !payload?.length) return null;
+  const meta: Record<string, { name: string; color: string }> = {
+    revenue:   { name: 'Revenue',    color: BRAND.lime },
+    netProfit: { name: profitLabel,  color: BRAND.forest },
+    expenses:  { name: 'Expenses',   color: '#ef4444' },
+  };
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 shadow-xl space-y-1">
-      <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-0.5">{label}</p>
-      {payload.map((p: any) => (
-        <div key={p.dataKey} className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
-          <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">{p.name || p.dataKey}</span>
-          <span className="text-xs font-black text-gray-900 dark:text-white ml-auto">₵{Number(p.value).toLocaleString()}</span>
-        </div>
-      ))}
+    <div className="space-y-1 rounded-xl border border-border bg-card px-3.5 py-2.5 shadow-xl">
+      <p className="mb-0.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</p>
+      {payload.map((p: any) => {
+        const m = meta[p.dataKey];
+        if (!m) return null;
+        return (
+          <div key={p.dataKey} className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full" style={{ background: m.color }} />
+            <span className="text-[11px] font-semibold text-muted-foreground">{m.name}</span>
+            <span className="tabular ml-auto pl-3 text-xs font-bold text-foreground">₵{Number(p.value).toLocaleString()}</span>
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -194,36 +248,42 @@ const ComposedTooltip = ({ active, payload, label }: any) => {
 const CustomPieTooltip = ({ active, payload }: any) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl px-3.5 py-2.5 shadow-xl">
-      <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-0.5">{payload[0].name}</p>
-      <p className="text-sm font-black text-gray-900 dark:text-white">₵{Number(payload[0].value).toLocaleString()}</p>
+    <div className="rounded-xl border border-border bg-card px-3.5 py-2.5 shadow-xl">
+      <p className="mb-0.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{payload[0].name}</p>
+      <p className="tabular text-sm font-bold text-foreground">₵{Number(payload[0].value).toLocaleString()}</p>
     </div>
   );
 };
 
-function EmptyChart({ icon: Icon, label, height }: { icon: any; label: string; height: string }) {
+function EmptyChart({ icon: Icon, label, height, onDark = false }: { icon: any; label: string; height: string; onDark?: boolean }) {
   return (
-    <div className={`flex flex-col items-center justify-center ${height} text-center px-4`}>
-      <Icon className="w-9 h-9 text-gray-200 dark:text-gray-700 mb-2" />
-      <p className="text-xs font-semibold text-gray-400">{label}</p>
+    <div className={cn('flex flex-col items-center justify-center px-4 text-center', height)}>
+      <Icon className={cn('mb-2 h-9 w-9', onDark ? 'text-white/20' : 'text-border')} />
+      <p className={cn('text-xs font-semibold', onDark ? 'text-white/50' : 'text-muted-foreground')}>{label}</p>
     </div>
   );
 }
 
 /** Small trend pill — up/down/flat vs previous equivalent period */
-function TrendBadge({ pct }: { pct: number | null }) {
+function TrendBadge({ pct, onDark = false }: { pct: number | null; onDark?: boolean }) {
   if (pct === null) return null;
   const flat = Math.abs(pct) < 0.5;
   const up   = pct > 0;
   const Icon = flat ? Minus : up ? ArrowUpRight : ArrowDownRight;
-  const color = flat
-    ? 'text-gray-400 bg-gray-100 dark:bg-gray-800'
-    : up
-      ? 'text-green-600 dark:text-green-400 bg-green-500/10'
-      : 'text-red-600 dark:text-red-400 bg-red-500/10';
+  const color = onDark
+    ? flat
+      ? 'bg-white/10 text-white/70'
+      : up
+        ? 'bg-[hsl(var(--brand-lime))] text-[hsl(var(--brand-deep))]'
+        : 'bg-red-400/20 text-red-300'
+    : flat
+      ? 'bg-muted text-muted-foreground'
+      : up
+        ? 'bg-[hsl(var(--brand-emerald)/0.12)] text-[hsl(var(--brand-emerald))]'
+        : 'bg-destructive/10 text-destructive';
   return (
-    <span className={`inline-flex items-center gap-0.5 text-[10px] font-black px-1.5 py-0.5 rounded-md ${color}`}>
-      <Icon className="w-3 h-3" />
+    <span className={cn('inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold', color)}>
+      <Icon className="h-3 w-3" />
       {Math.abs(pct).toFixed(0)}%
     </span>
   );
@@ -248,7 +308,6 @@ export default function ReportsPage() {
   // Salaries live inside expenses — only admin/manager see the expense-adjusted
   // (real) profit numbers here. Same gate as the Expenses page and dashboard.
   const canSeeExpenses = !!user && (user.role === 'admin' || user.role === 'manager');
-  const isRestricted   = !!user && !canSeeExpenses && user.role !== 'sales'; // defensive; nav already hides this for 'sales'/'staff'
 
   const [products,  setProducts]  = useState<Product[]>([]);
   const [allSales,  setAllSales]  = useState<SalesRecord[]>([]);
@@ -299,7 +358,7 @@ export default function ReportsPage() {
     fetchData();
   }, [activeBusiness, canSeeExpenses]);
 
-  const { filteredSales, hasActivity, stats, salesChartData, categoryData, topProducts, deltas } = useMemo(() => {
+  const { hasActivity, stats, salesChartData, categoryData, topProducts, deltas } = useMemo(() => {
     const now         = new Date();
     const rangeStart   = getRangeStart(timeRange);
     const filtered     = allSales.filter((s) => s.recordedAt >= rangeStart);
@@ -407,12 +466,11 @@ export default function ReportsPage() {
     };
 
     return {
-      filteredSales: filtered,
       hasActivity: filtered.length + filteredServiceJobs.length > 0,
       stats: {
         totalRevenue, totalCost, totalGrossProfit, totalExpenses, totalNetProfit, netMargin,
         totalUnitsSold, avgOrderValue, totalOrders, topProduct,
-      },
+      } as Stats,
       salesChartData,
       categoryData,
       topProducts: prodArr.slice(0, 5),
@@ -420,341 +478,467 @@ export default function ReportsPage() {
     };
   }, [allSales, allServiceJobs, products, expenses, timeRange, canSeeExpenses]);
 
-  const rangeLabel = timeRange === 'day' ? 'Today' : timeRange === 'week' ? 'This Week' : 'This Month';
-  const fmt = (v: number) => v >= 1000 ? `₵${(v / 1000).toFixed(1)}K` : `₵${Math.round(v).toLocaleString()}`;
+  const rangeLabel = timeRange === 'day' ? 'Today' : timeRange === 'week' ? 'This week' : 'This month';
+  const prevLabel  = timeRange === 'day' ? 'yesterday' : timeRange === 'week' ? 'last week' : 'last month';
+  const bucketUnit = timeRange === 'day' ? 'hour' : 'day';
 
-  const statCards = [
-    {
-      label: 'Total Revenue', icon: DollarSign, delta: deltas.revenue,
-      value: fmt(stats.totalRevenue),
-      accent: '#22c55e', bg: 'bg-green-500/8', text: 'text-green-600 dark:text-green-400', border: 'border-green-500/15',
-    },
-    {
-      label: canSeeExpenses ? 'Net Profit' : 'Gross Profit', icon: Wallet, delta: deltas.netProfit,
-      value: fmt(canSeeExpenses ? stats.totalNetProfit : stats.totalGrossProfit),
-      sub: canSeeExpenses
-        ? `${fmt(stats.totalGrossProfit)} gross − ${fmt(stats.totalExpenses)} expenses`
-        : `${stats.netMargin.toFixed(0)}% margin`,
-      accent: '#8b5cf6', bg: 'bg-purple-500/8', text: 'text-purple-600 dark:text-purple-400', border: 'border-purple-500/15',
-    },
-    {
-      label: 'Units Sold', icon: Package, delta: null,
-      value: stats.totalUnitsSold.toLocaleString(),
-      accent: '#3b82f6', bg: 'bg-blue-500/8', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/15',
-    },
-    {
-      label: 'Total Orders', icon: ShoppingBag, delta: deltas.orders,
-      value: stats.totalOrders.toLocaleString(),
-      accent: '#f59e0b', bg: 'bg-amber-500/8', text: 'text-amber-600 dark:text-amber-400', border: 'border-amber-500/15',
-    },
-    {
-      label: 'Avg Order Value', icon: TrendingUp, delta: deltas.aov,
-      value: `₵${Math.round(stats.avgOrderValue).toLocaleString()}`,
-      accent: '#ec4899', bg: 'bg-pink-500/8', text: 'text-pink-600 dark:text-pink-400', border: 'border-pink-500/15',
-    },
+  const profitValue = canSeeExpenses ? stats.totalNetProfit : stats.totalGrossProfit;
+  const profitLabel = canSeeExpenses ? 'Net profit' : 'Gross profit';
+  const profitSub = canSeeExpenses
+    ? `${fmt(stats.totalGrossProfit)} gross − ${fmt(stats.totalExpenses)} expenses`
+    : 'Revenue minus cost of goods';
+  const margin = Math.round(stats.netMargin);
+
+  // The standout bucket gets the lime bar, like the landing preview
+  const peak = salesChartData.reduce(
+    (best, d, i) => (d.revenue > best.value ? { index: i, value: d.revenue, label: d.date } : best),
+    { index: -1, value: 0, label: '' }
+  );
+
+  const expensePct =
+    stats.totalRevenue > 0
+      ? `${Math.round((stats.totalExpenses / stats.totalRevenue) * 100)}% of revenue`
+      : 'No revenue to compare';
+
+  const smallCards: { label: string; value: string; sub: string; tone: Tone; delta: number | null }[] = [
+    canSeeExpenses
+      ? { label: 'Expenses', value: fmt(stats.totalExpenses), sub: expensePct, tone: 'danger', delta: null }
+      : { label: 'Cost of sales', value: fmt(stats.totalCost), sub: 'Goods & parts sold', tone: 'neutral', delta: null },
+    { label: 'Orders', value: stats.totalOrders.toLocaleString(), sub: rangeLabel, tone: 'neutral', delta: deltas.orders },
+    { label: 'Avg order', value: fmt(stats.avgOrderValue), sub: 'Per transaction', tone: 'tint', delta: deltas.aov },
+    { label: 'Units sold', value: stats.totalUnitsSold.toLocaleString(), sub: rangeLabel, tone: 'neutral', delta: null },
   ];
 
+  // Inventory
+  const healthyCount = products.filter((p) => p.quantity > (p.lowStockAlert ?? 5)).length;
+  const lowCount     = products.filter((p) => p.quantity > 0 && p.quantity <= (p.lowStockAlert ?? 5)).length;
+  const outCount     = products.filter((p) => p.quantity === 0).length;
+  const stockSelling = products.reduce((s, p) => s + calcProductValue(p), 0);
+  const stockCost    = products.reduce((s, p) => s + getUnitCost(p) * p.quantity, 0);
+  const stockPotential = stockSelling - stockCost;
+
+  const inventoryTiles: { label: string; value: number; tone: Tone }[] = [
+    { label: 'Total products', value: products.length, tone: 'neutral' },
+    { label: 'Healthy stock',  value: healthyCount,    tone: 'tint' },
+    { label: 'Low stock',      value: lowCount,        tone: 'warn' },
+    { label: 'Out of stock',   value: outCount,        tone: 'danger' },
+  ];
+
+  const axisTick = { fontSize: 10, fontWeight: 700, fill: 'rgba(255,255,255,0.55)' };
+
   return (
-    <div className="min-h-full bg-gray-50 dark:bg-[#0a0a0a] relative overflow-hidden">
-      {/* Ambient background glow */}
-      <div className="pointer-events-none absolute -top-24 -right-24 w-96 h-96 rounded-full bg-green-500/10 blur-[100px]" />
-      <div className="pointer-events-none absolute top-40 -left-24 w-80 h-80 rounded-full bg-purple-500/10 blur-[100px]" />
+    <div className="min-h-full bg-muted">
+      <div className="mx-auto max-w-[1200px] space-y-4 p-4 pb-10 sm:p-5 lg:p-6">
 
-      <div className="h-[2px] w-full bg-gradient-to-r from-green-500 via-green-400 to-transparent relative z-10" />
-
-      <div className="px-4 sm:px-6 py-5 max-w-[1400px] mx-auto space-y-5 pb-10 relative z-10">
-
-        {/* HEADER */}
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col sm:flex-row sm:items-end gap-4">
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-bold text-green-500 uppercase tracking-[0.15em] mb-1 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5" />
-              Analytics · <span className="text-gray-400 font-normal">{activeBusiness?.name ?? '—'}</span>
+        {/* ── HEADER ── */}
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div className="min-w-0">
+            <h1 className="font-heading text-2xl font-semibold text-foreground sm:text-3xl">Reports</h1>
+            <p className="mt-0.5 truncate text-sm font-medium text-muted-foreground">
+              {activeBusiness?.name ?? '—'} · Sales, profit and stock at a glance
             </p>
-            <h1 className="text-3xl lg:text-4xl font-black tracking-tight bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent">
-              Reports<span className="text-green-500">.</span>
-            </h1>
           </div>
 
-          {/* Time range toggle */}
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm self-start sm:self-auto">
-            {TIME_RANGES.map((r) => (
-              <button key={r.key} onClick={() => setTimeRange(r.key)}
-                className={`relative px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all duration-200 ${
-                  timeRange === r.key
-                    ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
-                }`}>
-                <span className="sm:hidden">{r.short}</span>
-                <span className="hidden sm:inline">{r.label}</span>
-              </button>
-            ))}
+          <div className="inline-flex self-start rounded-xl bg-border/60 p-1 sm:self-auto">
+            {TIME_RANGES.map((r) => {
+              const active = timeRange === r.key;
+              return (
+                <button
+                  key={r.key}
+                  onClick={() => setTimeRange(r.key)}
+                  className={cn(
+                    'relative rounded-lg px-4 py-2 text-sm font-bold transition-colors',
+                    active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  {active && (
+                    <motion.div
+                      layoutId="reportsPill"
+                      className="absolute inset-0 rounded-lg bg-card shadow-sm"
+                      transition={{ type: 'spring', stiffness: 350, damping: 32 }}
+                    />
+                  )}
+                  <span className="relative z-10 whitespace-nowrap sm:hidden">{r.short}</span>
+                  <span className="relative z-10 hidden whitespace-nowrap sm:inline">{r.label}</span>
+                </button>
+              );
+            })}
           </div>
         </motion.div>
 
         {!canSeeExpenses && (
-          <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/8 border border-amber-500/15 text-amber-700 dark:text-amber-400">
-            <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
-            <p className="text-xs font-semibold">Showing gross profit only — expense-adjusted net profit is visible to admins and managers.</p>
+          <div className="flex items-center gap-2 rounded-xl border border-amber-300/70 bg-amber-100/70 px-4 py-2.5 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+            <ShieldAlert className="h-3.5 w-3.5 flex-shrink-0" />
+            <p className="text-xs font-semibold">Showing gross profit only. Expense-adjusted net profit is visible to admins and managers.</p>
           </div>
         )}
 
-        {/* STAT CARDS */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
-          {loading
-            ? Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-[92px] sm:h-[108px]" />)
-            : statCards.map((card, i) => (
-              <motion.div key={card.label}
-                initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.06, type: 'spring', stiffness: 300, damping: 24 }}
-                whileHover={{ y: -2 }}>
-                <div className={`rounded-2xl border ${card.border} ${card.bg} bg-white dark:bg-gray-900 p-4 sm:p-5 relative overflow-hidden hover:shadow-lg transition-shadow`}>
-                  <div className="absolute -right-4 -top-4 w-20 h-20 rounded-full opacity-[0.08] blur-xl" style={{ background: card.accent }} />
-                  <div className="flex items-start justify-between gap-2 relative z-10">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-gray-400 mb-1.5 truncate">{card.label}</p>
-                      <p className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white leading-none truncate">{card.value}</p>
-                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                        <p className="text-[10px] text-gray-400 truncate">{'sub' in card && card.sub ? card.sub : rangeLabel}</p>
-                        <TrendBadge pct={card.delta} />
-                      </div>
-                    </div>
-                    <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl ${card.bg} border ${card.border} flex items-center justify-center flex-shrink-0`}>
-                      <card.icon className={`w-4 h-4 ${card.text}`} />
-                    </div>
+        {/* ── HERO: chart panel + profit/KPI stack ── */}
+        <div className="grid gap-4 lg:grid-cols-[1.9fr_1fr]">
+
+          {/* Chart panel, same language as the landing "whole day at a glance" card */}
+          <motion.section
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35 }}
+            className="flex flex-col rounded-2xl border border-white/10 bg-[hsl(var(--brand-deep))] p-5 dark:border-border dark:bg-card"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-white/60">{rangeLabel}</p>
+                <p className="tabular mt-0.5 font-heading text-[34px] font-bold leading-none text-white">
+                  {loading ? '—' : fmt(stats.totalRevenue)}
+                </p>
+                {!loading && deltas.revenue !== null && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <TrendBadge pct={deltas.revenue} onDark />
+                    <span className="text-xs text-white/50">vs {prevLabel}</span>
                   </div>
-                </div>
-              </motion.div>
-            ))
-          }
-        </div>
+                )}
+              </div>
+              <span className="rounded-full bg-[hsl(var(--brand-lime))] px-3 py-1 text-xs font-bold text-[hsl(var(--brand-deep))]">
+                Sales
+              </span>
+            </div>
 
-        {/* CHARTS ROW */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-
-          {/* Revenue & profit trend */}
-          <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="lg:col-span-2">
-            <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="w-1 h-5 bg-green-500 rounded-full" />
-                  <h3 className="font-black text-sm text-gray-900 dark:text-white uppercase tracking-wider">
-                    Revenue & {canSeeExpenses ? 'Net Profit' : 'Profit'} — {rangeLabel}
-                  </h3>
-                </div>
-                {hasActivity && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-green-500/10 text-green-600 dark:text-green-400">
-                      {fmt(stats.totalRevenue)} revenue
-                    </span>
-                    <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400">
-                      {fmt(canSeeExpenses ? stats.totalNetProfit : stats.totalGrossProfit)} {canSeeExpenses ? 'net' : 'profit'}
-                    </span>
+            <div className="mt-5 flex-1">
+              {loading ? (
+                <Skeleton className="h-[250px] bg-white/10" />
+              ) : !hasActivity ? (
+                <EmptyChart
+                  icon={BarChart3}
+                  label={`No sales or services ${rangeLabel.toLowerCase()}`}
+                  height="h-[250px]"
+                  onDark
+                />
+              ) : (
+                <ResponsiveContainer width="100%" height={250}>
+                  <ComposedChart data={salesChartData} barCategoryGap="22%">
+                    <CartesianGrid stroke="rgba(255,255,255,0.07)" vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tick={axisTick}
+                      axisLine={false}
+                      tickLine={false}
+                      interval={timeRange === 'month' ? 4 : 0}
+                    />
+                    <YAxis
+                      tick={axisTick}
+                      axisLine={false}
+                      tickLine={false}
+                      width={48}
+                      tickFormatter={(v) => (v >= 1000 ? `₵${(v / 1000).toFixed(0)}K` : `₵${v}`)}
+                    />
+                    <Tooltip
+                      content={<ComposedTooltip profitLabel={profitLabel} />}
+                      cursor={{ fill: 'rgba(255,255,255,0.05)', radius: 8 }}
+                    />
+                    <Bar dataKey="revenue" name="Revenue" radius={[8, 8, 3, 3]} maxBarSize={46}>
+                      {salesChartData.map((_, idx) => (
+                        <Cell key={idx} fill={idx === peak.index ? BRAND.lime : 'rgba(255,255,255,0.16)'} />
+                      ))}
+                    </Bar>
+                    <Line
+                      type="monotone"
+                      dataKey="netProfit"
+                      name={profitLabel}
+                      stroke="#ffffff"
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: '#ffffff', strokeWidth: 0 }}
+                      activeDot={{ r: 5 }}
+                    />
                     {canSeeExpenses && (
-                      <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-red-500/10 text-red-600 dark:text-red-400">
-                        {fmt(stats.totalExpenses)} expenses
+                      <Line
+                        type="monotone"
+                        dataKey="expenses"
+                        name="Expenses"
+                        stroke="#fca5a5"
+                        strokeWidth={2}
+                        strokeDasharray="4 3"
+                        dot={{ r: 3, fill: '#fca5a5', strokeWidth: 0 }}
+                        activeDot={{ r: 5 }}
+                      />
+                    )}
+                  </ComposedChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            {/* Custom legend: Recharts' own can't show the lime peak bar */}
+            {!loading && hasActivity && (
+              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-white/10 pt-3 text-xs font-semibold text-white/60">
+                {peak.index >= 0 && (
+                  <span className="flex items-center gap-1.5">
+                    <i className="inline-block h-2.5 w-2.5 rounded-[3px] bg-[hsl(var(--brand-lime))]" />
+                    <span>
+                      Best {bucketUnit}: <span className="text-white">{peak.label}</span> ·{' '}
+                      <span className="tabular text-[hsl(var(--brand-lime))]">{fmt(peak.value)}</span>
+                    </span>
+                  </span>
+                )}
+                <span className="flex items-center gap-1.5">
+                  <i className="inline-block h-2.5 w-2.5 rounded-[3px] bg-white/20" /> Revenue
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <i className="inline-block h-0.5 w-3.5 bg-white" /> {profitLabel}
+                </span>
+                {canSeeExpenses && (
+                  <span className="flex items-center gap-1.5">
+                    <i className="inline-block h-0 w-3.5 border-t-2 border-dashed border-red-300" /> Expenses
+                  </span>
+                )}
+              </div>
+            )}
+          </motion.section>
+
+          {/* Right stack: profit hero + four KPI cards */}
+          <div className="grid grid-cols-2 content-start gap-3">
+            {loading ? (
+              <>
+                <div className="col-span-2 h-[112px] animate-pulse rounded-2xl bg-[hsl(var(--brand-forest))]/30" />
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="h-[92px] animate-pulse rounded-2xl border border-border bg-card" />
+                ))}
+              </>
+            ) : (
+              <>
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.05 }}
+                  className="col-span-2 rounded-2xl border border-transparent bg-[hsl(var(--brand-forest))] px-4 py-3.5 sm:px-5"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-white/70">{profitLabel}</p>
+                    {stats.totalRevenue > 0 && margin >= 0 && (
+                      <span className="rounded-full bg-[hsl(var(--brand-lime))] px-2 py-0.5 text-[11px] font-bold text-[hsl(var(--brand-deep))]">
+                        {margin}% margin
                       </span>
                     )}
                   </div>
-                )}
-              </div>
-              <div className="p-4 sm:p-5">
-                {loading ? (
-                  <Skeleton className="h-[220px] sm:h-[260px]" />
-                ) : !hasActivity ? (
-                  <EmptyChart icon={BarChart3} label={`No sales or services ${rangeLabel.toLowerCase()}`} height="h-[220px] sm:h-[260px]" />
-                ) : (
-                  <ResponsiveContainer width="100%" height={260}>
-                    <ComposedChart data={salesChartData} barCategoryGap="30%">
-                      <defs>
-                        <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%"   stopColor="#22c55e" stopOpacity={0.9} />
-                          <stop offset="100%" stopColor="#16a34a" stopOpacity={0.35} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="currentColor"
-                        className="text-gray-100 dark:text-gray-800" strokeOpacity={1} vertical={false} />
-                      <XAxis dataKey="date" tick={{ fontSize: 10, fontWeight: 700, fill: 'currentColor' }}
-                        className="text-gray-400" axisLine={false} tickLine={false}
-                        interval={timeRange === 'month' ? 4 : 0} />
-                      <YAxis tick={{ fontSize: 10, fontWeight: 700, fill: 'currentColor' }}
-                        className="text-gray-400" axisLine={false} tickLine={false} width={52}
-                        tickFormatter={(v) => v >= 1000 ? `₵${(v / 1000).toFixed(0)}K` : `₵${v}`} />
-                      <Tooltip content={<ComposedTooltip />} cursor={{ fill: 'rgba(34,197,94,0.06)', radius: 8 }} />
-                      <Legend wrapperStyle={{ fontSize: 11, fontWeight: 700 }} iconType="circle" iconSize={8} />
-                      <Bar dataKey="revenue" name="Revenue" fill="url(#revenueGrad)" radius={[6, 6, 2, 2]} maxBarSize={40} />
-                      <Line type="monotone" dataKey="netProfit" name={canSeeExpenses ? 'Net Profit' : 'Profit'} stroke="#8b5cf6" strokeWidth={2.5}
-                        dot={{ r: 3, fill: '#8b5cf6', strokeWidth: 0 }} activeDot={{ r: 5 }} />
-                      {canSeeExpenses && (
-                        <Line type="monotone" dataKey="expenses" name="Expenses" stroke="#ef4444" strokeWidth={2.5}
-                          strokeDasharray="4 3" dot={{ r: 3, fill: '#ef4444', strokeWidth: 0 }} activeDot={{ r: 5 }} />
-                      )}
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
-          </motion.div>
+                  <p className={cn(
+                    'tabular mt-1.5 font-heading text-[32px] font-bold leading-none',
+                    profitValue < 0 ? 'text-red-300' : 'text-white'
+                  )}>
+                    {fmt(profitValue)}
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="tabular text-xs font-semibold text-white/60">{profitSub}</span>
+                    <TrendBadge pct={deltas.netProfit} onDark />
+                  </div>
+                </motion.div>
 
-          {/* Category donut */}
-          <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.28 }}>
-            <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm overflow-hidden h-full">
-              <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-2">
-                <span className="w-1 h-5 bg-blue-500 rounded-full" />
-                <h3 className="font-black text-sm text-gray-900 dark:text-white uppercase tracking-wider">By Category</h3>
-              </div>
-              <div className="p-4 sm:p-5">
-                {loading ? (
-                  <Skeleton className="h-[220px]" />
-                ) : categoryData.length === 0 ? (
-                  <EmptyChart icon={Layers} label="No category data" height="h-[220px]" />
-                ) : (
-                  <>
-                    <div className="relative">
-                      <ResponsiveContainer width="100%" height={180}>
-                        <PieChart>
-                          <Pie data={categoryData} cx="50%" cy="50%" innerRadius={52} outerRadius={82}
-                            dataKey="value" stroke="none" paddingAngle={3}>
-                            {categoryData.map((_, idx) => (
-                              <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip content={<CustomPieTooltip />} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                        <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Total</p>
-                        <p className="text-sm font-black text-gray-900 dark:text-white">{fmt(stats.totalRevenue)}</p>
+                {smallCards.map((card, i) => {
+                  const t = TONES[card.tone];
+                  return (
+                    <motion.div
+                      key={card.label}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3, delay: 0.1 + i * 0.05 }}
+                      className={cn('rounded-2xl border px-4 py-3.5', t.card)}
+                    >
+                      <p className={cn('text-[11px] font-bold uppercase tracking-wide', t.label)}>{card.label}</p>
+                      <p className={cn('tabular mt-1.5 font-heading text-[24px] font-bold leading-none', t.value)}>
+                        {card.value}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                        <span className={cn('text-xs font-medium', t.sub)}>{card.sub}</span>
+                        <TrendBadge pct={card.delta} />
                       </div>
-                    </div>
-                    <div className="mt-3 space-y-2">
-                      {categoryData.map((cat, idx) => {
-                        const pct = stats.totalRevenue > 0 ? ((cat.value / stats.totalRevenue) * 100).toFixed(0) : '0';
-                        return (
-                          <div key={cat.name} className="flex items-center gap-2.5">
-                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: CHART_COLORS[idx % CHART_COLORS.length] }} />
-                            <span className="text-xs font-medium text-gray-600 dark:text-gray-400 flex-1 truncate">{cat.name}</span>
-                            <span className="text-xs font-black text-gray-900 dark:text-white flex-shrink-0">{pct}%</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </motion.div>
+                    </motion.div>
+                  );
+                })}
+              </>
+            )}
+          </div>
         </div>
 
-        {/* BOTTOM ROW */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* ── TOP PRODUCTS + CATEGORY ── */}
+        <div className="grid items-start gap-4 lg:grid-cols-[1.6fr_1fr]">
 
           {/* Top products */}
-          <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
-            <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-2">
-                <span className="w-1 h-5 bg-amber-400 rounded-full" />
-                <h3 className="font-black text-sm text-gray-900 dark:text-white uppercase tracking-wider">Top Products</h3>
-                <span className="ml-auto text-[10px] font-black text-gray-400 uppercase tracking-wider">{rangeLabel}</span>
+          <motion.section
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="overflow-hidden rounded-2xl border border-border bg-card"
+          >
+            <div className="flex items-center justify-between px-5 py-3.5">
+              <h2 className="font-heading text-[15px] font-bold text-foreground">Top products</h2>
+              <span className="text-xs font-semibold text-muted-foreground">{rangeLabel}</span>
+            </div>
+            {loading ? (
+              <div className="space-y-2 border-t border-border p-5">
+                {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-10" />)}
               </div>
-              {loading ? (
-                <div className="p-5 space-y-3">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
-              ) : topProducts.length === 0 ? (
+            ) : topProducts.length === 0 ? (
+              <div className="border-t border-border">
                 <EmptyChart icon={Award} label="No product data" height="h-32" />
+              </div>
+            ) : (
+              <ul>
+                {topProducts.map((p, i) => {
+                  const maxRevenue = topProducts[0]?.revenue ?? 1;
+                  const pct = Math.round((p.revenue / maxRevenue) * 100);
+                  const pMargin = p.revenue > 0 ? (p.profit / p.revenue) * 100 : 0;
+                  return (
+                    <motion.li
+                      key={p.name}
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.25 + i * 0.05 }}
+                      className="flex items-center gap-3 border-t border-border px-5 py-3 transition-colors hover:bg-muted/60"
+                    >
+                      <span className={cn(
+                        'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold',
+                        i === 0
+                          ? 'bg-[hsl(var(--brand-lime))] text-[hsl(var(--brand-deep))]'
+                          : 'bg-muted text-muted-foreground'
+                      )}>
+                        {i + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-foreground">{p.name}</p>
+                        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                          <motion.div
+                            className="h-full rounded-full bg-[hsl(var(--brand-emerald))]"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${pct}%` }}
+                            transition={{ delay: 0.3 + i * 0.05, duration: 0.6, ease: 'easeOut' }}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex-shrink-0 text-right">
+                        <p className="tabular text-sm font-bold text-foreground">{fmt(p.revenue)}</p>
+                        <p className="tabular text-[11px] font-semibold text-[hsl(var(--brand-emerald))]">{fmt(p.profit)} gross</p>
+                        <p className="text-[11px] text-muted-foreground">{p.quantity} units · {pMargin.toFixed(0)}% margin</p>
+                      </div>
+                    </motion.li>
+                  );
+                })}
+              </ul>
+            )}
+          </motion.section>
+
+          {/* Category donut */}
+          <motion.section
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+            className="overflow-hidden rounded-2xl border border-border bg-card"
+          >
+            <div className="px-5 py-3.5">
+              <h2 className="font-heading text-[15px] font-bold text-foreground">By category</h2>
+            </div>
+            <div className="border-t border-border p-5">
+              {loading ? (
+                <Skeleton className="h-[220px]" />
+              ) : categoryData.length === 0 ? (
+                <EmptyChart icon={Layers} label="No category data" height="h-[200px]" />
               ) : (
-                <div className="divide-y divide-gray-50 dark:divide-gray-800/60">
-                  {topProducts.map((p, i) => {
-                    const maxRevenue = topProducts[0]?.revenue ?? 1;
-                    const pct = Math.round((p.revenue / maxRevenue) * 100);
-                    const margin = p.revenue > 0 ? (p.profit / p.revenue) * 100 : 0;
+                <>
+                  <div className="relative">
+                    <ResponsiveContainer width="100%" height={170}>
+                      <PieChart>
+                        <Pie
+                          data={categoryData}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={50}
+                          outerRadius={78}
+                          dataKey="value"
+                          stroke="none"
+                          paddingAngle={3}
+                        >
+                          {categoryData.map((_, idx) => (
+                            <Cell key={idx} fill={CHART_COLORS[idx % CHART_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip content={<CustomPieTooltip />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total</p>
+                      <p className="tabular font-heading text-base font-bold text-foreground">{fmt(stats.totalRevenue)}</p>
+                    </div>
+                  </div>
+                  <ul className="mt-4 space-y-2.5">
+                    {categoryData.map((cat, idx) => {
+                      const pct = stats.totalRevenue > 0 ? ((cat.value / stats.totalRevenue) * 100).toFixed(0) : '0';
+                      return (
+                        <li key={cat.name} className="flex items-center gap-2.5 text-sm">
+                          <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ background: CHART_COLORS[idx % CHART_COLORS.length] }} />
+                          <span className="min-w-0 flex-1 truncate font-medium text-foreground">{cat.name}</span>
+                          <span className="tabular text-xs text-muted-foreground">{fmt(cat.value)}</span>
+                          <span className="tabular w-9 text-right text-xs font-bold text-foreground">{pct}%</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              )}
+            </div>
+          </motion.section>
+        </div>
+
+        {/* ── INVENTORY HEALTH ── */}
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="overflow-hidden rounded-2xl border border-border bg-card"
+        >
+          <div className="flex items-center justify-between px-5 py-3.5">
+            <h2 className="font-heading text-[15px] font-bold text-foreground">Inventory health</h2>
+            <span className="text-xs font-semibold text-muted-foreground">Live</span>
+          </div>
+          <div className="space-y-3 border-t border-border p-5">
+            {loading ? (
+              <>
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-[76px]" />)}
+                </div>
+                <Skeleton className="h-[76px]" />
+              </>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  {inventoryTiles.map((tile) => {
+                    const t = TONES[tile.tone];
                     return (
-                      <motion.div key={p.name}
-                        initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.35 + i * 0.05 }}
-                        className="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
-                        <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black flex-shrink-0 ${
-                          i === 0 ? 'bg-amber-400 text-white'
-                          : i === 1 ? 'bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200'
-                          : 'bg-gray-100 dark:bg-gray-800 text-gray-400'
-                        }`}>{i + 1}</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-gray-900 dark:text-white truncate">{p.name}</p>
-                          <div className="mt-1 h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
-                            <motion.div className="h-full rounded-full bg-green-500"
-                              initial={{ width: 0 }} animate={{ width: `${pct}%` }}
-                              transition={{ delay: 0.4 + i * 0.05, duration: 0.6, ease: 'easeOut' }} />
-                          </div>
-                        </div>
-                        <div className="text-right flex-shrink-0">
-                          <p className="text-xs font-black text-gray-900 dark:text-white">{fmt(p.revenue)}</p>
-                          <p className="text-[10px] text-purple-500 dark:text-purple-400 font-bold">{fmt(p.profit)} gross</p>
-                          <p className="text-[10px] text-gray-400">{p.quantity} units · {margin.toFixed(0)}% margin</p>
-                        </div>
-                      </motion.div>
+                      <div key={tile.label} className={cn('rounded-xl border px-4 py-3', t.card)}>
+                        <p className={cn('text-[11px] font-bold uppercase tracking-wide', t.label)}>{tile.label}</p>
+                        <p className={cn('tabular mt-1 font-heading text-[26px] font-bold leading-none', t.value)}>{tile.value}</p>
+                      </div>
                     );
                   })}
                 </div>
-              )}
-            </div>
-          </motion.div>
 
-          {/* Inventory health */}
-          <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.42 }}>
-            <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-2">
-                <span className="w-1 h-5 bg-purple-500 rounded-full" />
-                <h3 className="font-black text-sm text-gray-900 dark:text-white uppercase tracking-wider">Inventory Health</h3>
-                <span className="ml-auto text-[10px] text-gray-400 font-bold">Live</span>
-              </div>
-              {loading ? (
-                <div className="p-5 space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-14" />)}</div>
-              ) : (
-                <div className="p-5 space-y-3">
-                  {[
-                    { label: 'Total Products',  value: products.length,                                                                          bg: 'bg-gray-100 dark:bg-gray-800',              text: 'text-gray-700 dark:text-gray-300', icon: Package       },
-                    { label: 'Healthy Stock',   value: products.filter((p) => p.quantity > (p.lowStockAlert ?? 5)).length,                       bg: 'bg-green-500/8 border border-green-500/15', text: 'text-green-600 dark:text-green-400', icon: TrendingUp   },
-                    { label: 'Low Stock',       value: products.filter((p) => p.quantity > 0 && p.quantity <= (p.lowStockAlert ?? 5)).length,    bg: 'bg-amber-500/8 border border-amber-500/15', text: 'text-amber-600 dark:text-amber-400', icon: ArrowDownRight },
-                    { label: 'Out of Stock',    value: products.filter((p) => p.quantity === 0).length,                                          bg: 'bg-red-500/8 border border-red-500/15',     text: 'text-red-600 dark:text-red-400',    icon: ArrowDownRight },
-                  ].map((item, i) => (
-                    <motion.div key={item.label}
-                      initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.45 + i * 0.05 }}
-                      className={`flex items-center justify-between px-4 py-3 rounded-xl ${item.bg}`}>
-                      <div className="flex items-center gap-2.5">
-                        <item.icon className={`w-3.5 h-3.5 ${item.text}`} />
-                        <span className={`text-xs font-bold ${item.text}`}>{item.label}</span>
-                      </div>
-                      <span className={`text-lg font-black ${item.text}`}>{item.value}</span>
-                    </motion.div>
-                  ))}
-
-                  {/* Total stock value + potential profit if sold at listed price */}
-                  <div className="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Stock Value (selling)</span>
-                      <span className="text-base font-black text-gray-900 dark:text-white">
-                        ₵{products.reduce((s, p) => s + calcProductValue(p), 0).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Stock Value (cost)</span>
-                      <span className="text-sm font-black text-gray-500 dark:text-gray-400">
-                        ₵{products.reduce((s, p) => s + getUnitCost(p) * p.quantity, 0).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-purple-500 dark:text-purple-400 uppercase tracking-wider">Potential Profit</span>
-                      <span className="text-sm font-black text-purple-600 dark:text-purple-400">
-                        ₵{products.reduce((s, p) => s + (calcProductValue(p) - getUnitCost(p) * p.quantity), 0).toLocaleString()}
-                      </span>
-                    </div>
+                {/* Stock value strip: potential profit gets the lime accent */}
+                <div className="grid grid-cols-1 gap-4 rounded-xl bg-[hsl(var(--brand-forest))] px-5 py-4 sm:grid-cols-3">
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-white/60">Stock value (selling)</p>
+                    <p className="tabular mt-1 font-heading text-xl font-bold text-white">{fmt(stockSelling)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-white/60">Stock value (cost)</p>
+                    <p className="tabular mt-1 font-heading text-xl font-bold text-white/80">{fmt(stockCost)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-white/60">Potential profit</p>
+                    <p className="tabular mt-1 font-heading text-xl font-bold text-[hsl(var(--brand-lime))]">{fmt(stockPotential)}</p>
                   </div>
                 </div>
-              )}
-            </div>
-          </motion.div>
-        </div>
+              </>
+            )}
+          </div>
+        </motion.section>
       </div>
     </div>
   );

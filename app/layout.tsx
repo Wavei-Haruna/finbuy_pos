@@ -1,15 +1,16 @@
 import React from "react"
 import type { Metadata } from 'next'
-import { Outfit } from 'next/font/google'
+import { Manrope } from 'next/font/google'
 import { AuthProvider } from '@/lib/auth-context'
 
 import './globals.css'
 import { BusinessProvider } from "@/lib/business-context"
+import { AskPanel } from "@/components/AskPanel"
 
-// Headings: Outfit (variable font, loaded and self-hosted by Next)
-const outfit = Outfit({
+// One font for headings and body: Manrope (variable font, self-hosted by Next)
+const manrope = Manrope({
   subsets: ['latin'],
-  variable: '--font-outfit',
+  variable: '--font-manrope',
   display: 'swap',
 })
 
@@ -25,28 +26,11 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning className={outfit.variable}>
-      <head>
-        {/* Body / UI font: Satoshi, served by Fontshare */}
-        <link
-          rel="preconnect"
-          href="https://api.fontshare.com"
-          crossOrigin="anonymous"
-        />
-        <link
-          rel="preconnect"
-          href="https://cdn.fontshare.com"
-          crossOrigin="anonymous"
-        />
-        <link
-          rel="stylesheet"
-          href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap"
-        />
-      </head>
+    <html lang="en" suppressHydrationWarning className={manrope.variable}>
       <body className="font-body antialiased">
         <AuthProvider>
-          <BusinessProvider>
-          {children}
+          <BusinessProvider>{children}
+            <AskPanel />
           </BusinessProvider>
         </AuthProvider>
       </body>

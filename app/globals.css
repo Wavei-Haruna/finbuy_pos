@@ -10,11 +10,11 @@
 
 @layer base {
   :root {
-    /* Fonts: Outfit (headings) + Satoshi (body / UI) */
-    --font-heading: var(--font-outfit), 'Outfit', ui-sans-serif, system-ui,
+    /* Font: Manrope for headings, body and UI (loaded in layout.tsx) */
+    --font-heading: var(--font-manrope), 'Manrope', ui-sans-serif, system-ui,
       sans-serif;
-    --font-body: 'Satoshi', ui-sans-serif, system-ui, -apple-system,
-      'Segoe UI', sans-serif;
+    --font-body: var(--font-manrope), 'Manrope', ui-sans-serif, system-ui,
+      -apple-system, 'Segoe UI', sans-serif;
 
     /* Raw brand colors from the logo */
     --brand-deep: 166 85% 8%; /* near-black green, dark backgrounds, text */
@@ -49,6 +49,16 @@
     --chart-4: 98 73% 46%;
     --chart-5: 165 12% 38%;
     --radius: 0.75rem;
+
+    /* Sidebar */
+    --sidebar-background: 150 20% 98%;
+    --sidebar-foreground: 166 85% 8%;
+    --sidebar-primary: 163 86% 20%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 150 40% 94%;
+    --sidebar-accent-foreground: 163 86% 20%;
+    --sidebar-border: 150 15% 90%;
+    --sidebar-ring: 146 80% 35%;
   }
 
   .dark {
@@ -76,6 +86,16 @@
     --chart-3: 98 73% 46%;
     --chart-4: 163 60% 40%;
     --chart-5: 150 15% 65%;
+
+    /* Sidebar */
+    --sidebar-background: 166 85% 6%;
+    --sidebar-foreground: 90 20% 96%;
+    --sidebar-primary: 75 100% 48%;
+    --sidebar-primary-foreground: 166 85% 8%;
+    --sidebar-accent: 165 60% 16%;
+    --sidebar-accent-foreground: 90 20% 96%;
+    --sidebar-border: 165 45% 18%;
+    --sidebar-ring: 75 100% 48%;
   }
 }
 

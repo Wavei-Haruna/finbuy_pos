@@ -5,93 +5,115 @@ import { useAuth } from '@/lib/auth-context';
 import { useBusiness } from '@/lib/business-context';
 import { supabase } from '@/lib/supabase';
 import {
-  User, Phone, Lock, Save, Eye, EyeOff,
-  CheckCircle, AlertCircle, Loader2, ShieldCheck,
-  KeyRound, Bell, Building2, Hash, Edit2, X,
-  ImageIcon, UploadCloud, Trash2, AlertTriangle,
+  User, Phone, Lock, Save, Eye, EyeOff, CheckCircle, AlertCircle, Loader2,
+  ShieldCheck, KeyRound, Bell, Building2, Hash, Pencil, X, ImageIcon,
+  Trash2, AlertTriangle, ArrowLeftRight,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// ── Shared UI helpers ─────────────────────────────────────────────────────────
-function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm ${className}`}>
-      {children}
-    </div>
-  );
-}
+/* ───────────────────────── tokens & helpers ───────────────────────── */
 
-function CardHeader({ icon, title, sub }: { icon: React.ReactNode; title: string; sub: string }) {
-  return (
-    <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800 flex items-center gap-3">
-      <div className="w-8 h-8 rounded-xl bg-green-500/10 border border-green-500/20 flex items-center justify-center text-green-500">
-        {icon}
-      </div>
-      <div>
-        <h2 className="text-sm font-black text-gray-900 dark:text-white">{title}</h2>
-        <p className="text-xs text-gray-400">{sub}</p>
-      </div>
-    </div>
-  );
-}
+type Tab = 'profile' | 'businesses' | 'security';
 
-function InputField({
-  label, value, onChange, type = 'text', placeholder, icon, disabled, hint, rightElement,
-}: {
-  label: string; value: string; onChange: (v: string) => void;
-  type?: string; placeholder?: string; icon: React.ReactNode;
-  disabled?: boolean; hint?: string; rightElement?: React.ReactNode;
+const LIME  = 'hsl(var(--brand-lime))';
+const LEAF  = 'hsl(var(--brand-leaf))';
+const AMBER = '#f59e0b';
+const tint  = (c: string, pct = 14) => `color-mix(in srgb, ${c} ${pct}%, transparent)`;
+const CHIP  = 'text-[hsl(var(--brand-forest))] dark:text-[hsl(var(--brand-lime))]';
+
+const MAX_LOGO_BYTES = 2 * 1024 * 1024; // 2MB
+
+// Inputs are 16px on mobile so iOS never zooms the page when a field is focused.
+const shell = (error?: boolean) =>
+  `flex items-center rounded-xl border bg-muted/40 px-3.5 transition-all focus-within:bg-background focus-within:ring-4 ${
+    error
+      ? 'border-red-400 focus-within:border-red-500 focus-within:ring-red-500/15'
+      : 'border-input focus-within:border-[hsl(var(--ring))] focus-within:ring-[hsl(var(--ring)/0.15)]'}`;
+const bare = 'h-12 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-11 sm:text-sm';
+
+function Section({ icon: Icon, title, desc, children }: {
+  icon: React.ElementType; title: string; desc?: string; children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
-      <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
-        {icon} {label}
-      </label>
-      <div className="relative">
-        <input
-          type={type} value={value} onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder} disabled={disabled}
-          className="w-full h-11 px-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm font-medium focus:outline-none focus:border-green-500 focus:ring-2 focus:ring-green-500/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed placeholder:text-gray-400 placeholder:font-normal"
-        />
-        {rightElement && (
-          <div className="absolute right-3 top-1/2 -translate-y-1/2">{rightElement}</div>
-        )}
-      </div>
-      {hint && <p className="text-[11px] text-gray-400">{hint}</p>}
-    </div>
+    <section className="rounded-2xl border border-border bg-card shadow-sm">
+      <header className="flex items-start gap-3 border-b border-border px-4 py-3">
+        <span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl ${CHIP}`} style={{ background: tint(LIME, 18) }}>
+          <Icon className="h-[18px] w-[18px]" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="font-heading text-[15px] font-semibold leading-tight">{title}</h2>
+          {desc && <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>}
+        </div>
+      </header>
+      {children}
+    </section>
   );
 }
 
-function Toast({ msg, type }: { msg: string; type: 'success' | 'error' }) {
+function Banner({ tone, children, onClose }: { tone: 'success' | 'error'; children: React.ReactNode; onClose?: () => void }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-      className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-sm font-medium ${
-        type === 'success'
-          ? 'bg-green-500/10 border-green-500/20 text-green-600 dark:text-green-400'
-          : 'bg-red-500/10 border-red-500/20 text-red-600 dark:text-red-400'
-      }`}>
-      {type === 'success'
-        ? <CheckCircle className="w-4 h-4 flex-shrink-0" />
-        : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
-      {msg}
+    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+      <div role={tone === 'error' ? 'alert' : 'status'}
+        className={`flex items-start justify-between gap-2 rounded-xl px-3.5 py-2.5 text-sm font-medium ${
+          tone === 'success' ? '' : 'border border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-400'}`}
+        style={tone === 'success' ? { background: tint(LIME, 16) } : undefined}>
+        <span className="flex items-start gap-2">
+          {tone === 'success'
+            ? <CheckCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
+            : <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />}
+          {children}
+        </span>
+        {onClose && (
+          <button type="button" onClick={onClose} aria-label="Dismiss" className="-mr-1 p-1 hover:opacity-70"><X className="h-4 w-4" /></button>
+        )}
+      </div>
     </motion.div>
   );
 }
 
-const MAX_LOGO_BYTES = 2 * 1024 * 1024; // 2MB
-
-// ── Dedicated logo uploader (drag & drop, visible affordance, own error/progress state) ──
-function LogoUploader({
-  bizId,
-  bizName,
-  logoUrl,
-  onUploaded,
-  onRemoved,
+function TextField({
+  id, label, value, onChange, type = 'text', placeholder, icon: Icon, disabled, hint, error, inputMode, autoComplete, right,
 }: {
-  bizId: string;
-  bizName: string;
-  logoUrl: string | null;
+  id: string; label: string; value: string; onChange: (v: string) => void;
+  type?: string; placeholder?: string; icon: React.ElementType; disabled?: boolean;
+  hint?: string; error?: boolean; inputMode?: 'text' | 'tel' | 'numeric'; autoComplete?: string; right?: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1.5 block text-[13px] font-medium">{label}</label>
+      <div className={shell(error)}>
+        <Icon className="mr-2.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+        <input id={id} type={type} value={value} disabled={disabled} placeholder={placeholder}
+          inputMode={inputMode} autoComplete={autoComplete}
+          onChange={(e) => onChange(e.target.value)} className={bare} />
+        {right}
+      </div>
+      {hint && <p className="mt-1.5 text-[11px] text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+function PasswordField({ id, label, value, onChange, placeholder, disabled, autoComplete, error }: {
+  id: string; label: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; disabled?: boolean; autoComplete?: string; error?: boolean;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <TextField id={id} label={label} value={value} onChange={onChange} type={show ? 'text' : 'password'}
+      placeholder={placeholder} icon={Lock} disabled={disabled} autoComplete={autoComplete} error={error}
+      right={
+        <button type="button" onClick={() => setShow((s) => !s)} aria-label={show ? 'Hide password' : 'Show password'}
+          className="-mr-1.5 ml-1 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground">
+          {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      } />
+  );
+}
+
+/* ───────────────────────── logo uploader ───────────────────────── */
+
+function LogoUploader({ bizId, bizName, logoUrl, onUploaded, onRemoved }: {
+  bizId: string; bizName: string; logoUrl: string | null;
   onUploaded: (url: string) => Promise<void>;
   onRemoved: () => Promise<void>;
 }) {
@@ -102,10 +124,15 @@ function LogoUploader({
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const preview = localPreview || logoUrl;
+  const busy = status !== 'idle';
+
+  const clearLocal = () => {
+    setLocalPreview((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
+  };
 
   const validate = (file: File) => {
-    if (!file.type.startsWith('image/')) return 'Please choose an image file (PNG, JPG, or SVG).';
-    if (file.size > MAX_LOGO_BYTES) return 'That file is too big — logos must be under 2MB.';
+    if (!file.type.startsWith('image/')) return 'Please choose an image file (PNG or JPG).';
+    if (file.size > MAX_LOGO_BYTES) return 'That file is too big. Logos must be under 2MB.';
     return null;
   };
 
@@ -127,16 +154,14 @@ function LogoUploader({
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage.from('business-logos').getPublicUrl(filePath);
-      const url = urlData.publicUrl;
-
-      await onUploaded(url); // writes Firestore + updates shared business-context state
-
+      await onUploaded(urlData.publicUrl); // writes Firestore + updates shared business-context state
+      clearLocal();                        // the saved URL takes over from the local preview
     } catch (err: any) {
-      // Surface the real error in the console — the toast message alone often
-      // isn't enough to tell a Storage RLS rejection from a missing bucket.
+      // Log the real error: the on-screen message alone often can't tell a Storage
+      // RLS rejection from a missing bucket.
       console.error('Logo upload failed:', err);
       setError(err?.message || 'Upload failed. Please try again.');
-      setLocalPreview(null);
+      clearLocal();
     } finally {
       setStatus('idle');
     }
@@ -146,110 +171,74 @@ function LogoUploader({
     setStatus('removing');
     setError(null);
     try {
-      await onRemoved(); // writes Firestore + updates shared business-context state
-      setLocalPreview(null);
+      await onRemoved();
+      clearLocal();
     } catch (err: any) {
       console.error('Logo remove failed:', err);
-      setError(err?.message || 'Could not remove logo. Please try again.');
+      setError(err?.message || 'Could not remove the logo. Please try again.');
     } finally {
       setStatus('idle');
     }
   };
 
-  const busy = status !== 'idle';
-
   return (
-    <div className="px-3.5 pb-3.5 pt-3 border-t border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/30">
-      <p className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-        <ImageIcon className="w-3 h-3" /> Receipt Logo
-      </p>
+    <div
+      onDragOver={(e) => { e.preventDefault(); if (!busy) setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => { e.preventDefault(); setDragOver(false); if (!busy) handleFile(e.dataTransfer.files?.[0]); }}
+      className={`border-t border-border px-4 py-3.5 transition-colors ${dragOver ? 'bg-[hsl(var(--brand-lime)/0.10)]' : 'bg-muted/30'}`}>
+      <input ref={inputRef} type="file" accept="image/*" className="hidden"
+        onChange={(e) => { handleFile(e.target.files?.[0]); e.target.value = ''; }} />
 
-      <div className="flex items-start gap-3">
-        {/* Preview swatch — always visible, not hidden behind hover */}
-        <div className="w-16 h-16 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex-shrink-0 flex items-center justify-center overflow-hidden relative"
-          style={{
-            backgroundImage: preview
-              ? undefined
-              : 'linear-gradient(45deg, #eee 25%, transparent 25%), linear-gradient(-45deg, #eee 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #eee 75%), linear-gradient(-45deg, transparent 75%, #eee 75%)',
-            backgroundSize: '8px 8px',
-            backgroundPosition: '0 0, 0 4px, 4px -4px, -4px 0px',
-          }}
-        >
-          {preview ? (
-            <img src={preview} alt={`${bizName} logo`} className="w-full h-full object-contain" />
-          ) : (
-            <span className="text-lg font-black text-gray-300 dark:text-gray-600">{bizName.charAt(0)}</span>
-          )}
+      <div className="flex items-center gap-3">
+        <span className="relative flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-card">
+          {preview
+            ? <img src={preview} alt={`${bizName} logo`} className="h-full w-full object-contain p-1" />
+            : <ImageIcon className="h-5 w-5 text-muted-foreground" />}
           {busy && (
-            <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-              <Loader2 className="w-5 h-5 text-white animate-spin" />
-            </div>
+            <span className="absolute inset-0 flex items-center justify-center bg-background/70 backdrop-blur-[1px]">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            </span>
           )}
-        </div>
+        </span>
 
-        {/* Dropzone + actions */}
-        <div className="flex-1 min-w-0">
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => handleFile(e.target.files?.[0])}
-          />
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              handleFile(e.dataTransfer.files?.[0]);
-            }}
-            disabled={busy}
-            className={`w-full flex items-center justify-center gap-2 h-16 rounded-xl border-2 border-dashed text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-              dragOver
-                ? 'border-green-500 bg-green-500/10 text-green-600'
-                : 'border-gray-300 dark:border-gray-700 text-gray-400 hover:border-green-400 hover:text-green-500 hover:bg-green-500/5'
-            }`}
-          >
-            <UploadCloud className="w-4 h-4" />
-            {status === 'uploading' ? 'Uploading…' : 'Drag & drop, or click to choose an image'}
-          </button>
-
-          <div className="flex items-center justify-between mt-1.5">
-            <p className="text-[10px] text-gray-400">PNG or JPG, up to 2MB</p>
-            {preview && (
-              <button
-                type="button"
-                onClick={handleRemove}
-                disabled={busy}
-                className="flex items-center gap-1 text-[10px] font-bold text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
-              >
-                <Trash2 className="w-3 h-3" /> {status === 'removing' ? 'Removing…' : 'Remove logo'}
-              </button>
-            )}
-          </div>
-
-          {error && (
-            <p className="text-[11px] font-semibold text-red-500 mt-1.5 flex items-center gap-1">
-              <AlertCircle className="w-3 h-3 flex-shrink-0" /> {error}
-            </p>
-          )}
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-medium">Receipt logo</p>
+          <p className="text-[11px] text-muted-foreground">Printed at the top of every receipt. PNG or JPG, up to 2MB.</p>
         </div>
       </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => inputRef.current?.click()} disabled={busy}
+          className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-background px-4 text-[13px] font-medium transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50">
+          <ImageIcon className="h-4 w-4 text-muted-foreground" />
+          {status === 'uploading' ? 'Uploading…' : preview ? 'Replace logo' : 'Upload logo'}
+        </button>
+        {preview && (
+          <button type="button" onClick={handleRemove} disabled={busy}
+            className="inline-flex h-10 items-center gap-1.5 rounded-xl px-3 text-[13px] font-medium text-red-500 transition-colors hover:bg-red-500/10 disabled:opacity-50">
+            <Trash2 className="h-4 w-4" /> {status === 'removing' ? 'Removing…' : 'Remove'}
+          </button>
+        )}
+        <span className="hidden text-[11px] text-muted-foreground sm:inline">or drop an image here</span>
+      </div>
+
+      {error && (
+        <p className="mt-2.5 flex items-start gap-1.5 text-xs font-medium text-red-500">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" /> {error}
+        </p>
+      )}
     </div>
   );
 }
 
-// ── Delete-business confirmation modal ──────────────────────────────────────
-// Type-to-confirm pattern since this is destructive and can't be undone from the UI.
-function DeleteBusinessModal({
-  biz, onCancel, onConfirm, deleting, error,
-}: {
+/* ───────────────────────── delete business sheet ─────────────────────────
+   Type-to-confirm, because this is destructive and can't be undone from the UI. */
+
+function DeleteBusinessModal({ biz, onCancel, onConfirm, deleting, error }: {
   biz: { id: string; name: string; businessId: string };
   onCancel: () => void;
-  onConfirm: (input: string) => void;
+  onConfirm: () => void;
   deleting: boolean;
   error: string | null;
 }) {
@@ -259,66 +248,54 @@ function DeleteBusinessModal({
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === e.currentTarget && !deleting) onCancel(); }}
-    >
+      className="fixed inset-0 z-[60] flex items-end justify-center bg-[hsl(var(--brand-deep)/0.7)] backdrop-blur-sm sm:items-center sm:p-4"
+      onClick={(e) => { if (e.target === e.currentTarget && !deleting) onCancel(); }}>
       <motion.div
-        initial={{ opacity: 0, y: 12, scale: 0.97 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 12, scale: 0.97 }}
-        transition={{ type: 'spring', stiffness: 320, damping: 28 }}
-        className="w-full max-w-sm rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-2xl overflow-hidden"
-      >
-        <div className="p-5 space-y-4">
+        initial={{ opacity: 0, y: 60 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 60 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+        role="dialog" aria-modal="true" aria-label={`Delete ${biz.name}`}
+        className="max-h-[92dvh] w-full overflow-y-auto rounded-t-3xl border border-border bg-card shadow-2xl sm:max-w-md sm:rounded-3xl">
+        <div className="flex justify-center pt-2.5 sm:hidden"><span className="h-1 w-10 rounded-full bg-border" /></div>
+
+        <div className="space-y-4 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center flex-shrink-0">
-              <AlertTriangle className="w-5 h-5 text-red-500" />
-            </div>
-            <div>
-              <h3 className="text-sm font-black text-gray-900 dark:text-white">Delete "{biz.name}"?</h3>
-              <p className="text-xs text-gray-400 mt-0.5">
-                This permanently removes the business and cannot be undone. Products, sales history, and staff access tied to it will be affected too.
+            <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-red-500/10">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+            </span>
+            <div className="min-w-0">
+              <h3 className="font-heading text-base font-semibold leading-tight">Delete “{biz.name}”?</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                This permanently removes the business and can’t be undone. Its products, sales history and staff access will be affected too.
               </p>
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              Type <span className="text-gray-900 dark:text-white">{biz.name}</span> to confirm
+          <div>
+            <label htmlFor="confirm-biz" className="mb-1.5 block text-[13px] font-medium">
+              Type <span className="font-semibold">{biz.name}</span> to confirm
             </label>
-            <input
-              autoFocus
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              disabled={deleting}
-              placeholder={biz.name}
-              className="w-full h-11 px-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-sm font-medium focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/10 transition-all disabled:opacity-50"
-            />
+            <div className={shell(false)}>
+              <input id="confirm-biz" autoFocus type="text" value={input} disabled={deleting} autoComplete="off"
+                onChange={(e) => setInput(e.target.value)} placeholder={biz.name} className={bare} />
+            </div>
           </div>
 
           {error && (
-            <p className="text-[11px] font-semibold text-red-500 flex items-center gap-1">
-              <AlertCircle className="w-3 h-3 flex-shrink-0" /> {error}
+            <p className="flex items-start gap-1.5 text-xs font-medium text-red-500">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" /> {error}
             </p>
           )}
 
-          <div className="flex items-center gap-2 pt-1">
-            <button
-              onClick={onCancel}
-              disabled={deleting}
-              className="flex-1 h-10 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 text-sm font-bold hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
-            >
+          <div className="flex gap-2">
+            <button onClick={onCancel} disabled={deleting}
+              className="h-12 flex-1 rounded-xl border border-border bg-background text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50">
               Cancel
             </button>
-            <motion.button
-              whileTap={matches ? { scale: 0.97 } : undefined}
-              onClick={() => matches && onConfirm(input)}
+            <motion.button whileTap={matches ? { scale: 0.97 } : undefined} onClick={() => matches && onConfirm()}
               disabled={!matches || deleting}
-              className="flex-1 h-10 rounded-xl bg-red-500 hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-bold transition-colors flex items-center justify-center gap-2"
-            >
-              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-              {deleting ? 'Deleting…' : 'Delete Business'}
+              className="inline-flex h-12 flex-[1.3] items-center justify-center gap-2 rounded-xl bg-red-500 text-sm font-semibold text-white transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40">
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              {deleting ? 'Deleting…' : 'Delete business'}
             </motion.button>
           </div>
         </div>
@@ -327,124 +304,134 @@ function DeleteBusinessModal({
   );
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
+/* ───────────────────────── page ───────────────────────── */
+
 export default function SettingsPage() {
   const { user, updateProfile, changePassword } = useAuth();
   const { businesses, activeBusiness, setActiveBusiness, updateBusiness, updateBusinessLogo, deleteBusiness } = useBusiness();
 
-  // ── Profile ────────────────────────────────────────────────────────────
-  const [name,          setName]          = useState('');
-  const [phone,         setPhone]         = useState('');
-  const [profileMsg,    setProfileMsg]    = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [tab, setTab] = useState<Tab>('profile');
+
+  // Profile
+  const [name, setName]   = useState('');
+  const [phone, setPhone] = useState('');
+  const [profileMsg, setProfileMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
 
-  // ── Password ───────────────────────────────────────────────────────────
-  const [currentPwd,  setCurrentPwd]  = useState('');
-  const [newPwd,      setNewPwd]      = useState('');
-  const [confirmPwd,  setConfirmPwd]  = useState('');
-  const [showCurrent, setShowCurrent] = useState(false);
-  const [showNew,     setShowNew]     = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [pwdMsg,      setPwdMsg]      = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const [savingPwd,   setSavingPwd]   = useState(false);
+  // Password
+  const [currentPwd, setCurrentPwd] = useState('');
+  const [newPwd, setNewPwd]         = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [pwdMsg, setPwdMsg]         = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [savingPwd, setSavingPwd]   = useState(false);
 
-  // ── Business editing ───────────────────────────────────────────────────
+  // Business editing
   const [editingBizId, setEditingBizId] = useState<string | null>(null);
-  const [bizName,      setBizName]      = useState('');
-  const [bizCode,      setBizCode]      = useState('');
-  const [bizMsg,       setBizMsg]       = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const [savingBiz,    setSavingBiz]    = useState(false);
+  const [bizName, setBizName] = useState('');
+  const [bizCode, setBizCode] = useState('');
+  const [bizMsg, setBizMsg]   = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [savingBiz, setSavingBiz] = useState(false);
 
-  // ── Business deletion ──────────────────────────────────────────────────
-  const [deletingBiz, setDeletingBiz]     = useState<{ id: string; name: string; businessId: string } | null>(null);
-  const [deleteError, setDeleteError]     = useState<string | null>(null);
-  const [deletingNow, setDeletingNow]     = useState(false);
+  // Business deletion
+  const [deletingBiz, setDeletingBiz] = useState<{ id: string; name: string; businessId: string } | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deletingNow, setDeletingNow] = useState(false);
 
   useEffect(() => {
     if (user) { setName(user.name || ''); setPhone(user.phone || ''); }
   }, [user]);
 
   const flash = (
-    setter: (v: { text: string; type: 'success' | 'error' } | null) => void,
-    text: string, type: 'success' | 'error'
-  ) => { setter({ text, type }); setTimeout(() => setter(null), 4000); };
+    setter: (v: any) => void, value: any, ms = 4000,
+  ) => { setter(value); setTimeout(() => setter(null), ms); };
 
-  // ── Profile save ───────────────────────────────────────────────────────
+  /* ── profile ── */
+  const profileDirty = name.trim() !== (user?.name || '') || phone.trim() !== (user?.phone || '');
+
   const handleSaveProfile = async () => {
-    if (!name.trim()) { flash(setProfileMsg, 'Name cannot be empty.', 'error'); return; }
+    if (!name.trim()) { flash(setProfileMsg, { text: 'Your name can’t be empty.', type: 'error' }); return; }
+    if (phone.trim() && phone.replace(/\D/g, '').length < 9) {
+      flash(setProfileMsg, { text: 'Enter a valid phone number, for example 0551837449.', type: 'error' });
+      return;
+    }
     setSavingProfile(true);
     try {
       await updateProfile({ name: name.trim(), phone: phone.trim() });
-      flash(setProfileMsg, 'Profile updated successfully.', 'success');
+      flash(setProfileMsg, { text: 'Profile updated.', type: 'success' });
     } catch (err: any) {
-      flash(setProfileMsg, err.message || 'Failed to update profile.', 'error');
+      flash(setProfileMsg, { text: err.message || 'Could not update your profile.', type: 'error' });
     } finally { setSavingProfile(false); }
   };
 
-  // ── Password change ────────────────────────────────────────────────────
+  /* ── password ── */
   const handleChangePassword = async () => {
-    if (!currentPwd)           { flash(setPwdMsg, 'Enter your current password.', 'error'); return; }
-    if (newPwd.length < 6)     { flash(setPwdMsg, 'New password must be at least 6 characters.', 'error'); return; }
-    if (newPwd !== confirmPwd) { flash(setPwdMsg, 'Passwords do not match.', 'error'); return; }
-    if (newPwd === currentPwd) { flash(setPwdMsg, 'New password must differ from current.', 'error'); return; }
+    if (!currentPwd)           { flash(setPwdMsg, { text: 'Enter your current password.', type: 'error' }); return; }
+    if (newPwd.length < 6)     { flash(setPwdMsg, { text: 'The new password must be at least 6 characters.', type: 'error' }); return; }
+    if (newPwd !== confirmPwd) { flash(setPwdMsg, { text: 'The new passwords don’t match.', type: 'error' }); return; }
+    if (newPwd === currentPwd) { flash(setPwdMsg, { text: 'The new password must be different from the current one.', type: 'error' }); return; }
     setSavingPwd(true);
     try {
       await changePassword(currentPwd, newPwd);
       setCurrentPwd(''); setNewPwd(''); setConfirmPwd('');
-      flash(setPwdMsg, 'Password changed successfully.', 'success');
+      flash(setPwdMsg, { text: 'Password changed.', type: 'success' });
     } catch (err: any) {
-      flash(setPwdMsg, err.message || 'Failed to change password.', 'error');
+      flash(setPwdMsg, { text: err.message || 'Could not change your password.', type: 'error' });
     } finally { setSavingPwd(false); }
   };
 
-  // ── Business edit ──────────────────────────────────────────────────────
-  const startEditBiz = (biz: { id: string; name: string; businessId: string }) => {
-    setEditingBizId(biz.id);
-    setBizName(biz.name);
-    setBizCode(biz.businessId);
-    setBizMsg(null);
-  };
+  const strength = (() => {
+    if (!newPwd) return null;
+    if (newPwd.length < 6) return { label: 'Too short', score: 1, color: '#ef4444' };
+    if (newPwd.length < 8) return { label: 'Weak',      score: 2, color: '#f97316' };
+    if (!/[A-Z]/.test(newPwd) || !/[0-9]/.test(newPwd)) return { label: 'Fair', score: 3, color: '#eab308' };
+    return { label: 'Strong', score: 4, color: LEAF };
+  })();
 
-  const cancelEditBiz = () => { setEditingBizId(null); setBizName(''); setBizCode(''); };
+  /* ── business edit ── */
+  const startEditBiz = (biz: { id: string; name: string; businessId: string }) => {
+    setEditingBizId(biz.id); setBizName(biz.name); setBizCode(biz.businessId);
+    setEditError(null); setBizMsg(null);
+  };
+  const cancelEditBiz = () => { setEditingBizId(null); setBizName(''); setBizCode(''); setEditError(null); };
 
   const handleSaveBiz = async () => {
-    if (!bizName.trim()) { flash(setBizMsg, 'Business name cannot be empty.', 'error'); return; }
-    if (!bizCode.trim()) { flash(setBizMsg, 'Business ID cannot be empty.', 'error'); return; }
-    if (!editingBizId)   return;
+    if (!bizName.trim()) { setEditError('Business name can’t be empty.'); return; }
+    if (!bizCode.trim()) { setEditError('Business ID can’t be empty.'); return; }
+    if (!editingBizId) return;
 
     const isDupe = businesses.some(
-      (b) => b.id !== editingBizId && b.businessId.toLowerCase() === bizCode.trim().toLowerCase()
+      (b) => b.id !== editingBizId && b.businessId.toLowerCase() === bizCode.trim().toLowerCase(),
     );
-    if (isDupe) { flash(setBizMsg, 'Another business already uses this ID.', 'error'); return; }
+    if (isDupe) { setEditError('Another business already uses this ID.'); return; }
 
     setSavingBiz(true);
+    setEditError(null);
     try {
       await updateBusiness(editingBizId, bizName.trim(), bizCode.trim().toUpperCase());
-      flash(setBizMsg, 'Business updated successfully.', 'success');
+      flash(setBizMsg, 'Business updated.');
       setEditingBizId(null);
     } catch (err: any) {
-      flash(setBizMsg, err.message || 'Failed to update business.', 'error');
+      setEditError(err.message || 'Could not update this business.');
     } finally { setSavingBiz(false); }
   };
 
-  // ── Business delete ────────────────────────────────────────────────────
-  const handleConfirmDelete = async (_input: string) => {
+  /* ── business delete ── */
+  const handleConfirmDelete = async () => {
     if (!deletingBiz) return;
     setDeletingNow(true);
     setDeleteError(null);
     try {
       await deleteBusiness(deletingBiz.id);
 
-      // If the deleted business was the active one, hand off to whatever's left.
+      // If the deleted business was the active one, hand off to whatever's left
       if (activeBusiness?.id === deletingBiz.id) {
-        const next = businesses.find((b) => b.id !== deletingBiz.id) ?? null;
-        setActiveBusiness(next);
+        setActiveBusiness(businesses.find((b) => b.id !== deletingBiz.id) ?? null);
       }
-
       if (editingBizId === deletingBiz.id) cancelEditBiz();
 
+      flash(setBizMsg, `“${deletingBiz.name}” was deleted.`);
       setDeletingBiz(null);
-      flash(setBizMsg, `"${deletingBiz.name}" was deleted.`, 'success');
     } catch (err: any) {
       console.error('Delete business failed:', err);
       setDeleteError(err?.message || 'Could not delete this business. Please try again.');
@@ -453,295 +440,301 @@ export default function SettingsPage() {
     }
   };
 
-  const pwdStrength = (pwd: string) => {
-    if (!pwd) return null;
-    if (pwd.length < 6) return { label: 'Too short', color: 'bg-red-500',    w: 'w-1/4' };
-    if (pwd.length < 8) return { label: 'Weak',      color: 'bg-orange-500', w: 'w-2/4' };
-    if (!/[A-Z]/.test(pwd) || !/[0-9]/.test(pwd))
-                        return { label: 'Fair',       color: 'bg-yellow-500', w: 'w-3/4' };
-    return              { label: 'Strong',    color: 'bg-green-500',  w: 'w-full' };
-  };
+  const savedPhone = user?.phone?.trim();
 
-  const strength = pwdStrength(newPwd);
+  const TABS: { key: Tab; label: string; icon: React.ElementType; count?: number }[] = [
+    { key: 'profile',    label: 'Profile',    icon: User },
+    { key: 'businesses', label: 'Businesses', icon: Building2, count: businesses.length },
+    { key: 'security',   label: 'Security',   icon: KeyRound },
+  ];
 
+  /* ─────────────────────── render ─────────────────────── */
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#0a0a0a]">
-      <div className="h-[2px] w-full bg-gradient-to-r from-green-500 via-green-400 to-transparent" />
+    <div className="min-h-full bg-background text-foreground">
+      <div className="mx-auto max-w-5xl space-y-4 px-3 py-4 sm:px-4 lg:px-6">
 
-      <div className="px-4 sm:px-6 py-6 max-w-2xl mx-auto space-y-6 pb-12">
+        {/* Account hero */}
+        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+          className="relative overflow-hidden rounded-3xl p-5 text-white shadow-sm sm:p-6"
+          style={{ background: 'linear-gradient(140deg, hsl(var(--brand-deep)), hsl(var(--brand-forest)))' }}>
+          <div aria-hidden className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full opacity-25 blur-3xl" style={{ background: LIME }} />
 
-        {/* Header */}
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-          <p className="text-xs font-bold text-green-500 uppercase tracking-[0.15em] mb-1">Account</p>
-          <h1 className="text-3xl lg:text-4xl font-black tracking-tight text-gray-900 dark:text-white">
-            Settings<span className="text-gray-300 dark:text-gray-600">.</span>
-          </h1>
-          <p className="text-sm text-gray-400 mt-1">Manage your profile, businesses and account security</p>
-        </motion.div>
-
-        {/* Account info badge */}
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-          <div className="flex items-center gap-4 p-4 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white font-black text-xl shadow-lg shadow-green-500/20 flex-shrink-0">
+          <div className="relative flex items-center gap-4">
+            <span className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl font-heading text-2xl font-semibold text-[hsl(var(--brand-deep))]"
+              style={{ background: LIME }}>
               {user?.name?.charAt(0).toUpperCase() || 'A'}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-heading text-xl font-semibold leading-tight">{user?.name || 'Your account'}</p>
+              <p className="truncate text-sm text-white/60">{user?.email}</p>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-black text-gray-900 dark:text-white truncate">{user?.name || '—'}</p>
-              <p className="text-xs text-gray-400 truncate">{user?.email}</p>
-            </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/10 border border-green-500/20">
-              <ShieldCheck className="w-3 h-3 text-green-500" />
-              <span className="text-xs font-bold text-green-600 dark:text-green-400 capitalize">{user?.role || 'admin'}</span>
-            </div>
+            <span className="hidden flex-shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold capitalize sm:inline-flex"
+              style={{ background: tint(LIME, 18), color: LIME }}>
+              <ShieldCheck className="h-3.5 w-3.5" /> {user?.role || 'admin'}
+            </span>
           </div>
-        </motion.div>
 
-        {/* ── Profile Card ── */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-          <Card>
-            <CardHeader icon={<User className="w-4 h-4" />} title="Profile" sub="Update your name and SMS notification number" />
-            <div className="p-5 space-y-4">
-              <InputField
-                label="Full Name" value={name} onChange={setName}
-                placeholder="Your full name" icon={<User className="w-3 h-3" />}
-                disabled={savingProfile}
-              />
-              <InputField
-                label="Phone Number (SMS Notifications)"
-                value={phone} onChange={setPhone} type="tel"
-                placeholder="e.g. 0551837449"
-                icon={<Phone className="w-3 h-3" />}
-                disabled={savingProfile}
-                hint="Admin copy of every sale SMS will be sent to this number"
-              />
-              <AnimatePresence>{profileMsg && <Toast msg={profileMsg.text} type={profileMsg.type} />}</AnimatePresence>
-              <div className="flex justify-end pt-1">
-                <motion.button onClick={handleSaveProfile} disabled={savingProfile} whileTap={{ scale: 0.97 }}
-                  className="flex items-center gap-2 px-5 h-10 rounded-xl bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm transition-colors shadow-lg shadow-green-500/20">
-                  {savingProfile ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  {savingProfile ? 'Saving…' : 'Save Profile'}
-                </motion.button>
+          <div className="relative mt-5 grid grid-cols-3 gap-3 border-t border-white/10 pt-4">
+            {[
+              { label: 'Role',          value: <span className="capitalize">{user?.role || 'admin'}</span> },
+              { label: 'Sale alerts',   value: savedPhone || 'Not set' },
+              { label: 'Active business', value: activeBusiness?.name || '—' },
+            ].map((s) => (
+              <div key={s.label} className="min-w-0">
+                <p className="truncate text-[11px] text-white/55">{s.label}</p>
+                <p className="mt-0.5 truncate font-heading text-base font-semibold">{s.value}</p>
               </div>
-            </div>
-          </Card>
-        </motion.div>
-
-        {/* SMS info */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.13 }}>
-          <div className="flex items-start gap-3 px-4 py-3.5 rounded-xl border border-blue-500/20 bg-blue-500/5">
-            <Bell className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-xs font-bold text-blue-600 dark:text-blue-400">SMS Notifications</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                Every sale recorded by admin or staff sends an SMS copy to the phone number above.
-                {user?.phone
-                  ? <> Currently set to <span className="font-bold text-gray-700 dark:text-gray-300">{user.phone}</span>.</>
-                  : <span className="text-orange-500 font-semibold"> No number set yet — add one above to receive sale alerts.</span>
-                }
-              </p>
-            </div>
+            ))}
           </div>
         </motion.div>
 
-        {/* ── Businesses Card ── */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16 }}>
-          <Card>
-            <CardHeader
-              icon={<Building2 className="w-4 h-4" />}
-              title="Your Businesses"
-              sub="Edit the name, ID, or receipt logo of any registered business"
-            />
-            <div className="p-5 space-y-3">
+        <div className="grid gap-4 lg:grid-cols-[14rem_minmax(0,1fr)] lg:items-start">
 
-              {businesses.length === 0 ? (
-                <div className="py-8 flex flex-col items-center gap-2 text-center">
-                  <Building2 className="w-8 h-8 text-gray-200 dark:text-gray-700" />
-                  <p className="text-sm font-bold text-gray-400">No businesses yet</p>
-                  <p className="text-xs text-gray-400">Add one from the Businesses page</p>
-                </div>
-              ) : (
-                <>
-                  <AnimatePresence>{bizMsg && <Toast msg={bizMsg.text} type={bizMsg.type} />}</AnimatePresence>
+          {/* Section nav: segmented on mobile, vertical rail on desktop */}
+          <nav aria-label="Settings sections" className="lg:sticky lg:top-4">
+            <div role="tablist"
+              className="grid grid-cols-3 gap-1 rounded-2xl border border-border bg-muted/50 p-1 lg:grid-cols-1 lg:gap-0.5 lg:bg-card lg:p-1.5 lg:shadow-sm">
+              {TABS.map(({ key, label, icon: Icon, count }) => {
+                const active = tab === key;
+                return (
+                  <button key={key} role="tab" aria-selected={active} onClick={() => setTab(key)}
+                    className={`flex h-11 items-center justify-center gap-2 rounded-xl px-3 text-[13px] font-medium transition-all lg:justify-start ${
+                      active ? 'bg-card text-foreground shadow-sm lg:bg-accent lg:shadow-none' : 'text-muted-foreground hover:text-foreground'}`}>
+                    <Icon className={`h-4 w-4 flex-shrink-0 ${active ? 'text-primary' : ''}`} />
+                    {label}
+                    {typeof count === 'number' && (
+                      <span className="rounded-full bg-muted px-1.5 text-[11px] tabular-nums text-muted-foreground lg:ml-auto">{count}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
 
-                  {businesses.map((biz) => (
-                    <motion.div key={biz.id} layout
-                      className="rounded-xl border-2 border-gray-100 dark:border-gray-800 overflow-hidden">
+          {/* Panels */}
+          <div className="min-w-0">
+            <AnimatePresence mode="wait" initial={false}>
 
-                      {/* Business row */}
-                      <div className="flex items-center gap-3 p-3.5">
-                        <div className="w-9 h-9 rounded-lg overflow-hidden flex items-center justify-center bg-gradient-to-br from-green-400 to-green-600 text-white font-black text-sm flex-shrink-0">
-                          {biz.logoUrl
-                            ? <img src={biz.logoUrl} alt={`${biz.name} logo`} className="w-full h-full object-cover" />
-                            : biz.name.charAt(0)}
-                        </div>
+              {/* ── PROFILE ── */}
+              {tab === 'profile' && (
+                <motion.div key="profile" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+                  <Section icon={User} title="Profile" desc="Your name and the number that gets sale alerts.">
+                    <div className="space-y-3.5 p-4">
+                      <TextField id="profile-name" label="Full name" value={name} onChange={setName}
+                        placeholder="Your full name" icon={User} disabled={savingProfile} autoComplete="name" />
+                      <TextField id="profile-phone" label="Phone number" value={phone} onChange={setPhone} type="tel" inputMode="tel"
+                        placeholder="e.g. 0551837449" icon={Phone} disabled={savingProfile} autoComplete="tel"
+                        hint="You get an SMS copy of every sale recorded by you or your staff." />
 
-                        <div className="flex-1 min-w-0">
-                          <p className="font-bold text-gray-900 dark:text-white text-sm truncate">{biz.name}</p>
-                          <p className="text-[11px] font-mono text-gray-400">{biz.businessId}</p>
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => editingBizId === biz.id ? cancelEditBiz() : startEditBiz(biz)}
-                            className={`flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-bold transition-all ${
-                              editingBizId === biz.id
-                                ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-red-500'
-                                : 'bg-blue-500/10 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20'
-                            }`}>
-                            {editingBizId === biz.id
-                              ? <><X className="w-3.5 h-3.5" /> Cancel</>
-                              : <><Edit2 className="w-3.5 h-3.5" /> Edit</>}
-                          </button>
-
-                          <button
-                            onClick={() => { setDeleteError(null); setDeletingBiz(biz); }}
-                            disabled={businesses.length <= 1}
-                            title={businesses.length <= 1 ? "You need at least one business" : "Delete business"}
-                            className="flex items-center justify-center w-8 h-8 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-red-500/10"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                      <div className="flex items-start gap-2.5 rounded-xl px-3.5 py-3 text-xs"
+                        style={savedPhone ? { background: tint(LIME, 14) } : { background: tint(AMBER, 12) }}>
+                        <Bell className={`mt-0.5 h-4 w-4 flex-shrink-0 ${savedPhone ? 'text-primary' : 'text-amber-600 dark:text-amber-400'}`} />
+                        <p className="leading-relaxed">
+                          {savedPhone
+                            ? <>Sale alerts go to <span className="font-semibold">{savedPhone}</span>.</>
+                            : <>No number saved yet. Add one above to get an SMS for every sale.</>}
+                        </p>
                       </div>
 
-                      {/* Always-visible logo uploader — no more hover-only hidden button */}
-                      <LogoUploader
-                        bizId={biz.id}
-                        bizName={biz.name}
-                        logoUrl={biz.logoUrl}
-                        onUploaded={(url) => updateBusinessLogo(biz.id, url)}
-                        onRemoved={() => updateBusinessLogo(biz.id, null)}
-                      />
-
-                      {/* Inline edit form */}
                       <AnimatePresence>
-                        {editingBizId === biz.id && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="px-3.5 pb-3.5 pt-1 border-t border-gray-100 dark:border-gray-800 space-y-3 bg-gray-50 dark:bg-gray-800/40">
-                              <InputField
-                                label="Business Name" value={bizName} onChange={setBizName}
-                                placeholder="e.g. Kumasi Main Branch"
-                                icon={<Building2 className="w-3 h-3" />} disabled={savingBiz}
-                              />
-                              <InputField
-                                label="Business ID" value={bizCode}
-                                onChange={(v) => setBizCode(v.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 16))}
-                                placeholder="e.g. KSI-001"
-                                icon={<Hash className="w-3 h-3" />} disabled={savingBiz}
-                                hint="Max 16 chars · used by staff to log in"
-                              />
-                              <div className="flex justify-end">
-                                <motion.button onClick={handleSaveBiz} disabled={savingBiz} whileTap={{ scale: 0.97 }}
-                                  className="flex items-center gap-2 px-4 h-9 rounded-xl bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs transition-colors shadow-md shadow-green-500/20">
-                                  {savingBiz ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                                  {savingBiz ? 'Saving…' : 'Save Changes'}
-                                </motion.button>
+                        {profileMsg && <Banner tone={profileMsg.type}>{profileMsg.text}</Banner>}
+                      </AnimatePresence>
+
+                      <div className="flex justify-end pt-1">
+                        <motion.button onClick={handleSaveProfile} disabled={savingProfile || !profileDirty} whileTap={{ scale: 0.98 }}
+                          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-sm transition-[filter] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 sm:h-11 sm:w-auto">
+                          {savingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                          {savingProfile ? 'Saving…' : profileDirty ? 'Save changes' : 'Saved'}
+                        </motion.button>
+                      </div>
+                    </div>
+                  </Section>
+                </motion.div>
+              )}
+
+              {/* ── BUSINESSES ── */}
+              {tab === 'businesses' && (
+                <motion.div key="businesses" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+                  <AnimatePresence>{bizMsg && <Banner tone="success" onClose={() => setBizMsg(null)}>{bizMsg}</Banner>}</AnimatePresence>
+
+                  {businesses.length === 0 ? (
+                    <Section icon={Building2} title="Your businesses" desc="Edit the name, ID or receipt logo of any business.">
+                      <div className="flex flex-col items-center gap-3 px-6 py-12 text-center">
+                        <span className={`flex h-12 w-12 items-center justify-center rounded-2xl ${CHIP}`} style={{ background: tint(LIME, 18) }}>
+                          <Building2 className="h-6 w-6" />
+                        </span>
+                        <div>
+                          <p className="font-heading text-[15px] font-semibold">No businesses yet</p>
+                          <p className="mt-1 text-sm text-muted-foreground">Add one from the Businesses page.</p>
+                        </div>
+                      </div>
+                    </Section>
+                  ) : (
+                    <>
+                      {businesses.map((biz) => {
+                        const isActive  = activeBusiness?.id === biz.id;
+                        const isEditing = editingBizId === biz.id;
+                        return (
+                          <motion.section key={biz.id} layout
+                            className={`overflow-hidden rounded-2xl border bg-card shadow-sm ${isActive ? 'border-[hsl(var(--brand-leaf)/0.55)]' : 'border-border'}`}>
+
+                            {/* Identity row */}
+                            <div className="flex items-center gap-3 p-4">
+                              <span className="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl font-heading text-lg font-semibold text-white"
+                                style={{ background: 'linear-gradient(140deg, hsl(var(--brand-deep)), hsl(var(--brand-forest)))' }}>
+                                {biz.logoUrl
+                                  ? <img src={biz.logoUrl} alt={`${biz.name} logo`} className="h-full w-full bg-white object-contain p-1" />
+                                  : biz.name.charAt(0)}
+                              </span>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                  <p className="truncate text-[15px] font-semibold">{biz.name}</p>
+                                  {isActive && (
+                                    <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: tint(LIME, 22) }}>Active</span>
+                                  )}
+                                </div>
+                                <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">{biz.businessId}</p>
+                              </div>
+
+                              <div className="flex flex-shrink-0 items-center gap-1.5">
+                                <button onClick={() => (isEditing ? cancelEditBiz() : startEditBiz(biz))}
+                                  aria-label={isEditing ? 'Cancel editing' : `Edit ${biz.name}`}
+                                  className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border px-3 text-[13px] font-medium transition-colors ${
+                                    isEditing ? 'border-border bg-muted text-muted-foreground hover:text-foreground' : 'border-border bg-background hover:bg-accent'}`}>
+                                  {isEditing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4 text-muted-foreground" />}
+                                  <span className="hidden sm:inline">{isEditing ? 'Cancel' : 'Edit'}</span>
+                                </button>
+                                <button onClick={() => { setDeleteError(null); setDeletingBiz(biz); }}
+                                  disabled={businesses.length <= 1}
+                                  aria-label={`Delete ${biz.name}`}
+                                  title={businesses.length <= 1 ? 'You need at least one business' : 'Delete business'}
+                                  className="flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground">
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
                               </div>
                             </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </motion.div>
-                  ))}
 
-                  {businesses.length <= 1 && (
-                    <p className="text-[11px] text-gray-400 flex items-center gap-1.5 pt-1">
-                      <AlertCircle className="w-3 h-3 flex-shrink-0" />
-                      You need at least one business — add another before deleting this one.
-                    </p>
+                            {!isActive && (
+                              <div className="border-t border-border px-4 py-2.5">
+                                <button onClick={() => setActiveBusiness(biz)}
+                                  className="inline-flex h-9 items-center gap-2 rounded-lg px-1 text-[13px] font-medium text-primary transition-opacity hover:opacity-80">
+                                  <ArrowLeftRight className="h-4 w-4" /> Switch to this business
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Edit panel */}
+                            <AnimatePresence initial={false}>
+                              {isEditing && (
+                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                                  <div className="space-y-3.5 border-t border-border bg-muted/30 p-4">
+                                    <TextField id={`biz-name-${biz.id}`} label="Business name" value={bizName} onChange={setBizName}
+                                      placeholder="e.g. Kumasi Main Branch" icon={Building2} disabled={savingBiz} />
+                                    <TextField id={`biz-code-${biz.id}`} label="Business ID" value={bizCode}
+                                      onChange={(v) => setBizCode(v.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 16))}
+                                      placeholder="e.g. KSI-001" icon={Hash} disabled={savingBiz}
+                                      hint="Up to 16 characters. Staff use this to log in." />
+                                    <AnimatePresence>{editError && <Banner tone="error">{editError}</Banner>}</AnimatePresence>
+                                    <div className="flex gap-2">
+                                      <button onClick={cancelEditBiz} disabled={savingBiz}
+                                        className="h-12 flex-1 rounded-xl border border-border bg-background text-sm font-medium transition-colors hover:bg-accent disabled:opacity-50 sm:h-11 sm:flex-none sm:px-5">
+                                        Cancel
+                                      </button>
+                                      <motion.button onClick={handleSaveBiz} disabled={savingBiz} whileTap={{ scale: 0.98 }}
+                                        className="inline-flex h-12 flex-[1.5] items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition-[filter] hover:brightness-110 disabled:opacity-50 sm:h-11 sm:flex-none">
+                                        {savingBiz ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                                        {savingBiz ? 'Saving…' : 'Save changes'}
+                                      </motion.button>
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+
+                            <LogoUploader
+                              bizId={biz.id}
+                              bizName={biz.name}
+                              logoUrl={biz.logoUrl}
+                              onUploaded={(url) => updateBusinessLogo(biz.id, url)}
+                              onRemoved={() => updateBusinessLogo(biz.id, null)}
+                            />
+                          </motion.section>
+                        );
+                      })}
+
+                      {businesses.length <= 1 && (
+                        <p className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
+                          <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                          You need at least one business. Add another before deleting this one.
+                        </p>
+                      )}
+                    </>
                   )}
-                </>
+                </motion.div>
               )}
-            </div>
-          </Card>
-        </motion.div>
 
-        {/* ── Change Password Card ── */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.19 }}>
-          <Card>
-            <CardHeader icon={<KeyRound className="w-4 h-4" />} title="Change Password" sub="Re-authentication required for security" />
-            <div className="p-5 space-y-4">
+              {/* ── SECURITY ── */}
+              {tab === 'security' && (
+                <motion.div key="security" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-4">
+                  <Section icon={KeyRound} title="Change password" desc="You’ll need your current password to confirm it’s you.">
+                    <div className="space-y-3.5 p-4">
+                      <PasswordField id="pwd-current" label="Current password" value={currentPwd} onChange={setCurrentPwd}
+                        placeholder="Your current password" disabled={savingPwd} autoComplete="current-password" />
 
-              <InputField
-                label="Current Password" value={currentPwd} onChange={setCurrentPwd}
-                type={showCurrent ? 'text' : 'password'} placeholder="••••••••"
-                icon={<Lock className="w-3 h-3" />} disabled={savingPwd}
-                rightElement={
-                  <button type="button" onClick={() => setShowCurrent(!showCurrent)} tabIndex={-1}
-                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
-                    {showCurrent ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                }
-              />
+                      <div>
+                        <PasswordField id="pwd-new" label="New password" value={newPwd} onChange={setNewPwd}
+                          placeholder="At least 6 characters" disabled={savingPwd} autoComplete="new-password" />
+                        {strength && (
+                          <div className="mt-2.5">
+                            <div className="grid grid-cols-4 gap-1.5">
+                              {[1, 2, 3, 4].map((i) => (
+                                <span key={i} className="h-1.5 rounded-full transition-colors"
+                                  style={{ background: i <= strength.score ? strength.color : 'hsl(var(--muted))' }} />
+                              ))}
+                            </div>
+                            <p className="mt-1.5 text-[11px] font-medium" style={{ color: strength.color }}>{strength.label}</p>
+                            {strength.score < 4 && (
+                              <p className="text-[11px] text-muted-foreground">Use 8+ characters with a capital letter and a number to make it strong.</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
 
-              <div className="space-y-1.5">
-                <InputField
-                  label="New Password" value={newPwd} onChange={setNewPwd}
-                  type={showNew ? 'text' : 'password'} placeholder="Min. 6 characters"
-                  icon={<Lock className="w-3 h-3" />} disabled={savingPwd}
-                  rightElement={
-                    <button type="button" onClick={() => setShowNew(!showNew)} tabIndex={-1}
-                      className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
-                      {showNew ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  }
-                />
-                {strength && (
-                  <div className="space-y-1">
-                    <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
-                      <div className={`h-full rounded-full transition-all duration-300 ${strength.color} ${strength.w}`} />
+                      <div>
+                        <PasswordField id="pwd-confirm" label="Confirm new password" value={confirmPwd} onChange={setConfirmPwd}
+                          placeholder="Repeat the new password" disabled={savingPwd} autoComplete="new-password"
+                          error={!!confirmPwd && newPwd !== confirmPwd} />
+                        {confirmPwd && (
+                          <p className={`mt-1.5 flex items-center gap-1.5 text-xs font-medium ${newPwd === confirmPwd ? 'text-primary' : 'text-red-500'}`}>
+                            {newPwd === confirmPwd
+                              ? <><CheckCircle className="h-3.5 w-3.5" /> Passwords match</>
+                              : <><AlertCircle className="h-3.5 w-3.5" /> Passwords don’t match yet</>}
+                          </p>
+                        )}
+                      </div>
+
+                      <AnimatePresence>
+                        {pwdMsg && <Banner tone={pwdMsg.type}>{pwdMsg.text}</Banner>}
+                      </AnimatePresence>
+
+                      <div className="flex justify-end pt-1">
+                        <motion.button onClick={handleChangePassword} disabled={savingPwd || !currentPwd || !newPwd || !confirmPwd} whileTap={{ scale: 0.98 }}
+                          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-sm transition-[filter] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 sm:h-11 sm:w-auto">
+                          {savingPwd ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                          {savingPwd ? 'Updating…' : 'Update password'}
+                        </motion.button>
+                      </div>
                     </div>
-                    <p className={`text-[10px] font-bold ${
-                      strength.label === 'Strong' ? 'text-green-500' :
-                      strength.label === 'Fair'   ? 'text-yellow-500' : 'text-red-500'
-                    }`}>{strength.label}</p>
-                  </div>
-                )}
-              </div>
-
-              <InputField
-                label="Confirm New Password" value={confirmPwd} onChange={setConfirmPwd}
-                type={showConfirm ? 'text' : 'password'} placeholder="Repeat new password"
-                icon={<Lock className="w-3 h-3" />} disabled={savingPwd}
-                rightElement={
-                  <button type="button" onClick={() => setShowConfirm(!showConfirm)} tabIndex={-1}
-                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
-                    {showConfirm ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                }
-              />
-
-              {confirmPwd && (
-                <p className={`text-xs font-semibold flex items-center gap-1.5 ${
-                  newPwd === confirmPwd ? 'text-green-500' : 'text-red-400'
-                }`}>
-                  {newPwd === confirmPwd
-                    ? <><CheckCircle className="w-3.5 h-3.5" /> Passwords match</>
-                    : <><AlertCircle className="w-3.5 h-3.5" /> Passwords do not match</>}
-                </p>
+                  </Section>
+                </motion.div>
               )}
-
-              <AnimatePresence>{pwdMsg && <Toast msg={pwdMsg.text} type={pwdMsg.type} />}</AnimatePresence>
-
-              <div className="flex justify-end pt-1">
-                <motion.button onClick={handleChangePassword} disabled={savingPwd} whileTap={{ scale: 0.97 }}
-                  className="flex items-center gap-2 px-5 h-10 rounded-xl bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm transition-colors shadow-lg shadow-green-500/20">
-                  {savingPwd ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
-                  {savingPwd ? 'Updating…' : 'Update Password'}
-                </motion.button>
-              </div>
-            </div>
-          </Card>
-        </motion.div>
-
+            </AnimatePresence>
+          </div>
+        </div>
       </div>
 
-      {/* Delete confirmation modal */}
+      {/* Delete confirmation */}
       <AnimatePresence>
         {deletingBiz && (
           <DeleteBusinessModal

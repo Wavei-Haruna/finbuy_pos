@@ -4,9 +4,8 @@ import { useState, useMemo, useCallback } from 'react';
 import { Product } from '@/lib/types';
 import { useBarcodeScanner } from '@/hooks/use-barcode-scanner';
 import {
-  Camera, X, Plus, Trash2, Loader2, CheckCircle,
-  User, Phone, MessageSquare, Package, Search,
-  AlertCircle, Zap, ScanLine, Tag,
+  Camera, X, Plus, Minus, Trash2, Loader2, CheckCircle, User, Phone,
+  MessageSquare, Package, Search, AlertCircle, Zap, ScanLine, Tag, ChevronDown,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -24,27 +23,78 @@ interface SaleFormProps {
   products:       Product[];
   submitting:     boolean;
   successMessage: string;
+  errorMessage?:  string;
+  /** Resolve true when the sale was recorded. The cart is only cleared on true. */
   onSubmit: (
     cart:     CartItem[],
     customer: { name: string; phone: string; notes: string },
     sendSMS:  boolean
-  ) => Promise<void>;
+  ) => Promise<boolean>;
 }
 
+/* ───────────────────────── tokens & helpers ───────────────────────── */
+
+const LIME  = 'hsl(var(--brand-lime))';
+const LEAF  = 'hsl(var(--brand-leaf))';
+const AMBER = '#f59e0b';
+const tint  = (c: string, pct = 14) => `color-mix(in srgb, ${c} ${pct}%, transparent)`;
+
+// Money / positive numbers: emerald on light, lime on dark (both read well on their surface)
+const MONEY = 'text-[hsl(var(--brand-emerald))] dark:text-[hsl(var(--brand-lime))]';
+
 const normaliseSKU = (s: string) => s.trim().toUpperCase().replace(/\s+/g, '');
+const fmt = (n: number) => `₵${n.toLocaleString('en-GH', { maximumFractionDigits: 2 })}`;
 
-export function SaleForm({ products, submitting, successMessage, onSubmit }: SaleFormProps) {
-  const [cart,         setCart]        = useState<CartItem[]>([]);
-  const [selectedId,   setSelectedId]  = useState('');
-  const [saleType,     setSaleType]    = useState<'piece' | 'box'>('piece');
-  const [qty,          setQty]         = useState('1');
-  const [customer,     setCustomer]    = useState({ name: '', phone: '', notes: '' });
-  const [sendSMS,      setSendSMS]     = useState(true);
-  const [searchQuery,  setSearchQuery] = useState('');
-  const [dropdownOpen, setDropdownOpen]= useState(false);
-  const [scanMsg,      setScanMsg]     = useState('');
-  const [scanError,    setScanError]   = useState('');
+const stockMeta = (qty: number, low = 5) =>
+  qty <= 0   ? { label: 'Out of stock',  cls: 'text-red-500' }
+  : qty <= low ? { label: `${qty} left`, cls: 'text-amber-600 dark:text-amber-400' }
+  :              { label: `${qty} in stock`, cls: 'text-muted-foreground' };
 
+// Inputs are 16px on mobile so iOS never zooms the page when a field is focused.
+const shell = (error?: boolean) =>
+  `flex items-center rounded-xl border bg-muted/40 px-3.5 transition-all focus-within:bg-background focus-within:ring-4 ${
+    error
+      ? 'border-red-400 focus-within:border-red-500 focus-within:ring-red-500/15'
+      : 'border-input focus-within:border-[hsl(var(--ring))] focus-within:ring-[hsl(var(--ring)/0.15)]'}`;
+const bare = 'h-12 min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground sm:h-11 sm:text-sm';
+const noSpin = '[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
+
+function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <button type="button" role="switch" aria-checked={checked} aria-label={label} onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-border'}`}>
+      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
+    </button>
+  );
+}
+
+function Thumb({ src, alt, size = 'h-10 w-10' }: { src?: string; alt: string; size?: string }) {
+  return (
+    <span className={`flex ${size} flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted`}>
+      {src
+        ? <img src={src} alt={alt} className="h-full w-full object-cover" />
+        : <Package className="h-4 w-4 text-muted-foreground" />}
+    </span>
+  );
+}
+
+/* ───────────────────────── form ───────────────────────── */
+
+export function SaleForm({ products, submitting, successMessage, errorMessage, onSubmit }: SaleFormProps) {
+  const [cart,         setCart]         = useState<CartItem[]>([]);
+  const [selectedId,   setSelectedId]   = useState('');
+  const [saleType,     setSaleType]     = useState<'piece' | 'box'>('piece');
+  const [qty,          setQty]          = useState('1');
+  const [customer,     setCustomer]     = useState({ name: '', phone: '', notes: '' });
+  const [sendSMS,      setSendSMS]      = useState(true);
+  const [showCustomer, setShowCustomer] = useState(false);
+  const [searchQuery,  setSearchQuery]  = useState('');
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [scanMsg,      setScanMsg]      = useState('');
+  const [scanError,    setScanError]    = useState('');
+  const [formError,    setFormError]    = useState('');
+
+  /* ── scanning ── */
   const matchBarcode = useCallback((raw: string): Product | undefined => {
     const code = normaliseSKU(raw);
     return (
@@ -54,17 +104,18 @@ export function SaleForm({ products, submitting, successMessage, onSubmit }: Sal
   }, [products]);
 
   const handleScan = useCallback((raw: string, source: 'camera' | 'external') => {
-    setScanMsg(''); setScanError('');
+    setScanMsg(''); setScanError(''); setFormError('');
     const match = matchBarcode(raw);
     if (match) {
       setSelectedId(match.id);
       setSearchQuery(match.name);
       setDropdownOpen(false);
-      setScanMsg(`${source === 'external' ? '🔌' : '📷'} Found: ${match.name}`);
+      setSaleType(!match.piecePrice && match.boxEnabled ? 'box' : 'piece');
+      setScanMsg(`${source === 'external' ? 'Scanner' : 'Camera'} found ${match.name}`);
     } else {
       setSearchQuery(raw);
       setDropdownOpen(true);
-      setScanError(`No product matched "${raw}" — select manually below.`);
+      setScanError(`No product matched “${raw}”. Pick it from the list below.`);
     }
   }, [matchBarcode]);
 
@@ -74,6 +125,7 @@ export function SaleForm({ products, submitting, successMessage, onSubmit }: Sal
   const scanning    = scannerState === 'starting' || scannerState === 'active';
   const cameraReady = scannerState === 'active';
 
+  /* ── product selection & pricing ── */
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return products;
     const q = searchQuery.toLowerCase();
@@ -87,13 +139,18 @@ export function SaleForm({ products, submitting, successMessage, onSubmit }: Sal
 
   const selectedProduct = products.find((p) => p.id === selectedId);
 
-  // Determine pricing based on sale type
-  const canSellBox  = selectedProduct?.boxEnabled && (selectedProduct?.boxPrice ?? 0) > 0;
-  const activePrice = saleType === 'box' && canSellBox
-    ? (selectedProduct?.boxPrice ?? 0)
-    : (selectedProduct?.piecePrice ?? selectedProduct?.sellingPrice ?? 0);
+  const canSellBox  = !!selectedProduct?.boxEnabled && (selectedProduct?.boxPrice ?? 0) > 0;
+  const piecePrice  = selectedProduct?.piecePrice ?? selectedProduct?.sellingPrice ?? 0;
+  const activePrice = saleType === 'box' && canSellBox ? (selectedProduct?.boxPrice ?? 0) : piecePrice;
 
+  const qtyNum    = Math.max(1, parseInt(qty) || 1);
+  const lineTotal = qtyNum * activePrice;
   const cartTotal = cart.reduce((s, i) => s + i.totalPrice, 0);
+  const cartUnits = (productId: string) =>
+    cart.filter((i) => i.productId === productId)
+        .reduce((s, i) => s + (i.saleType === 'box' ? i.quantity * (i.boxQty ?? 1) : i.quantity), 0);
+
+  const remaining = selectedProduct ? selectedProduct.quantity - cartUnits(selectedProduct.id) : 0;
 
   const clearSelection = useCallback(() => {
     setSelectedId('');
@@ -104,43 +161,38 @@ export function SaleForm({ products, submitting, successMessage, onSubmit }: Sal
     setSaleType('piece');
   }, []);
 
-  // When product changes, reset to piece if box not available
   const selectProduct = (p: Product) => {
     setSelectedId(p.id);
     setSearchQuery(p.name);
     setScanMsg('');
     setScanError('');
+    setFormError('');
     setDropdownOpen(false);
-    // Auto-select piece; if only box available, switch
-    if (!p.piecePrice && p.boxEnabled) setSaleType('box');
-    else setSaleType('piece');
+    setSaleType(!p.piecePrice && p.boxEnabled ? 'box' : 'piece');
   };
 
+  /* ── cart ── */
   const addToCart = () => {
     if (!selectedId || !selectedProduct) return;
-    const q = parseInt(qty) || 1;
+    const q = qtyNum;
 
-    // Stock check: box sales consume boxQty * quantity units
+    // Box sales consume boxQty × quantity units
     const unitsConsumed = saleType === 'box' ? q * (selectedProduct.boxQty ?? 1) : q;
-    const inCartUnits   = cart
-      .filter((i) => i.productId === selectedId)
-      .reduce((s, i) => s + (i.saleType === 'box' ? i.quantity * (i.boxQty ?? 1) : i.quantity), 0);
-
-    if (inCartUnits + unitsConsumed > selectedProduct.quantity) {
-      alert(`Not enough stock. Only ${selectedProduct.quantity - inCartUnits} units left.`);
+    if (cartUnits(selectedId) + unitsConsumed > selectedProduct.quantity) {
+      setFormError(
+        remaining <= 0
+          ? `${selectedProduct.name} is already fully in the cart.`
+          : `Not enough stock. Only ${remaining} unit${remaining !== 1 ? 's' : ''} left.`
+      );
       return;
     }
+    setFormError('');
 
-    const cartKey = `${selectedId}-${saleType}`;
     setCart((prev) => {
       const idx = prev.findIndex((i) => i.productId === selectedId && i.saleType === saleType);
       if (idx >= 0) {
         return prev.map((item, i) =>
-          i === idx ? {
-            ...item,
-            quantity:   item.quantity + q,
-            totalPrice: (item.quantity + q) * item.unitPrice,
-          } : item
+          i === idx ? { ...item, quantity: item.quantity + q, totalPrice: (item.quantity + q) * item.unitPrice } : item
         );
       }
       return [...prev, {
@@ -156,197 +208,202 @@ export function SaleForm({ products, submitting, successMessage, onSubmit }: Sal
     clearSelection();
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!cart.length) return;
-    await onSubmit(cart, customer, sendSMS);
-    setCart([]);
-    setCustomer({ name: '', phone: '', notes: '' });
+  const bumpCart = (item: CartItem, delta: number) => {
+    const newQty = item.quantity + delta;
+    if (newQty < 1) return;
+    if (delta > 0) {
+      const product = products.find((p) => p.id === item.productId);
+      const extra   = item.saleType === 'box' ? (item.boxQty ?? 1) : 1;
+      if (product && cartUnits(item.productId) + extra > product.quantity) {
+        setFormError(`No more stock for ${item.productName}.`);
+        return;
+      }
+    }
+    setFormError('');
+    setCart((c) => c.map((i) =>
+      i.productId === item.productId && i.saleType === item.saleType
+        ? { ...i, quantity: newQty, totalPrice: newQty * i.unitPrice }
+        : i
+    ));
   };
 
+  const removeFromCart = (item: CartItem) =>
+    setCart((c) => c.filter((i) => !(i.productId === item.productId && i.saleType === item.saleType)));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cart.length || submitting) return;
+    const ok = await onSubmit(cart, customer, sendSMS && !!customer.phone.trim());
+    // Only clear when the sale really went through, so a failed save never loses the cart
+    if (ok) {
+      setCart([]);
+      setCustomer({ name: '', phone: '', notes: '' });
+      setShowCustomer(false);
+      setFormError('');
+    }
+  };
+
+  const cartCount = cart.reduce((s, i) => s + i.quantity, 0);
+
+  /* ─────────────────────── render ─────────────────────── */
   return (
     <>
       {/* Camera overlay */}
       <AnimatePresence>
         {scanning && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4">
-            <motion.div initial={{ scale: 0.93 }} animate={{ scale: 1 }} exit={{ scale: 0.93 }}
-              className="w-full max-w-xs space-y-4">
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[hsl(var(--brand-deep)/0.92)] p-4 backdrop-blur-md">
+            <motion.div initial={{ scale: 0.94, opacity: 0, y: 8 }} animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.94, opacity: 0 }} className="w-full max-w-sm space-y-4">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-green-500/20 flex items-center justify-center">
-                    <ScanLine className="w-4 h-4 text-green-400" />
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: tint(LIME, 16) }}>
+                    <ScanLine className="h-[18px] w-[18px]" style={{ color: LIME }} />
                   </div>
                   <div>
-                    <p className="text-white font-black text-sm">Scan Barcode</p>
-                    <p className="text-gray-500 text-xs">{cameraReady ? 'Point at barcode' : 'Starting…'}</p>
+                    <h3 className="font-heading text-sm font-semibold text-white">Scan barcode</h3>
+                    <p className="text-xs text-white/50">{cameraReady ? 'Point at the barcode' : 'Starting camera…'}</p>
                   </div>
                 </div>
-                <button onClick={stopCamera}
-                  className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white">
-                  <X className="w-4 h-4" />
+                <button type="button" onClick={stopCamera} aria-label="Close scanner"
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20">
+                  <X className="h-4 w-4" />
                 </button>
               </div>
-              <div className="relative rounded-2xl overflow-hidden bg-gray-900 aspect-[4/3]">
-                <video ref={videoRef} className="w-full h-full object-cover" muted playsInline autoPlay />
+              <div className="relative aspect-[4/3] overflow-hidden rounded-3xl bg-black ring-1 ring-white/10">
+                <video ref={videoRef} className="h-full w-full object-cover" muted playsInline autoPlay />
                 {!cameraReady && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-950">
-                    <Loader2 className="w-7 h-7 text-green-400 animate-spin mb-2" />
-                    <p className="text-gray-400 text-xs">Opening camera…</p>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-[hsl(var(--brand-deep))]">
+                    <Loader2 className="mb-2 h-6 w-6 animate-spin" style={{ color: LIME }} />
+                    <p className="text-xs text-white/50">Opening camera…</p>
                   </div>
                 )}
                 {cameraReady && (
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="absolute inset-0 bg-black/25" />
-                    <div className="relative z-10 w-4/5 h-24">
-                      {['top-0 left-0 border-t-2 border-l-2 rounded-tl-lg','top-0 right-0 border-t-2 border-r-2 rounded-tr-lg',
-                        'bottom-0 left-0 border-b-2 border-l-2 rounded-bl-lg','bottom-0 right-0 border-b-2 border-r-2 rounded-br-lg',
-                      ].map((cls, i) => <div key={i} className={`absolute w-6 h-6 border-green-400 ${cls}`} />)}
-                      <motion.div className="absolute left-2 right-2 h-[2px] bg-gradient-to-r from-transparent via-green-400 to-transparent"
-                        animate={{ top: ['8%', '88%', '8%'] }} transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }} />
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="absolute inset-0 bg-black/30" />
+                    <div className="relative z-10 h-28 w-4/5">
+                      {['top-0 left-0 border-t-2 border-l-2 rounded-tl-xl', 'top-0 right-0 border-t-2 border-r-2 rounded-tr-xl',
+                        'bottom-0 left-0 border-b-2 border-l-2 rounded-bl-xl', 'bottom-0 right-0 border-b-2 border-r-2 rounded-br-xl',
+                      ].map((cls) => <div key={cls} className={`absolute h-7 w-7 border-[hsl(var(--brand-lime))] ${cls}`} />)}
+                      <motion.div className="absolute left-2 right-2 h-[2px]"
+                        style={{ background: `linear-gradient(90deg, transparent, ${LIME}, transparent)`, boxShadow: `0 0 12px ${LIME}` }}
+                        animate={{ top: ['8%', '88%', '8%'] }} transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }} />
                     </div>
                   </div>
                 )}
               </div>
-              {cameraError && <div className="px-4 py-3 rounded-xl bg-red-500/15 border border-red-500/20 text-red-400 text-xs text-center">{cameraError}</div>}
-              <p className="text-center text-gray-600 text-xs">EAN, UPC, QR, Code128 — auto-detects</p>
+              {cameraError && (
+                <div className="rounded-xl border border-red-500/20 bg-red-500/15 px-4 py-3 text-center text-sm text-red-400">{cameraError}</div>
+              )}
+              <p className="text-center text-xs text-white/40">Detects automatically. No button needed.</p>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-3.5" noValidate>
 
-        {/* Success */}
+        {/* Success / error banners */}
         <AnimatePresence>
           {successMessage && (
-            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
-              <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-green-500/10 border border-green-500/20 text-green-600 dark:text-green-400">
-                <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                <span className="text-sm font-bold">{successMessage}</span>
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+              <div className="flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-medium" style={{ background: tint(LIME, 16) }}>
+                <CheckCircle className="h-4 w-4 flex-shrink-0 text-primary" />{successMessage}
+              </div>
+            </motion.div>
+          )}
+          {(errorMessage || formError) && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+              <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3.5 py-2.5 text-sm font-medium text-red-600 dark:text-red-400">
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />{errorMessage || formError}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* External scanner toggle */}
-        <div className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl border-2 transition-colors ${
-          externalEnabled ? 'bg-blue-500/5 border-blue-500/20' : 'bg-gray-50 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700'
-        }`}>
-          <div className="flex items-center gap-2">
-            <Zap className={`w-3.5 h-3.5 ${externalEnabled ? 'text-blue-500' : 'text-gray-400'}`} />
-            <div>
-              <p className="text-xs font-bold text-gray-700 dark:text-gray-300">External Scanner</p>
-              <p className="text-[10px] text-gray-400">USB / Bluetooth HID device</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {externalEnabled && (
-              <span className="flex items-center gap-1 text-[10px] font-black text-blue-500">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500" />
-                </span>LISTENING
-              </span>
-            )}
-            <button type="button" onClick={() => setExternalEnabled(!externalEnabled)}
-              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${externalEnabled ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
-              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${externalEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
-            </button>
-          </div>
-        </div>
-
-        {/* ── ADD PRODUCT ── */}
-        <div className="rounded-2xl border-2 border-dashed border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-800/40 space-y-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
-            <Package className="w-3 h-3" /> Add Product
+        {/* ── ADD ITEM ── */}
+        <div className="space-y-3 rounded-2xl border border-border bg-muted/30 p-3.5">
+          <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <Package className="h-3.5 w-3.5" /> Add item
           </p>
 
-          {/* Scan / error feedback */}
           <AnimatePresence>
             {scanMsg && (
               <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/20 text-green-600 dark:text-green-400 text-xs font-semibold">
-                <div className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />{scanMsg}</div>
-                <button type="button" onClick={clearSelection}><X className="w-3.5 h-3.5" /></button>
+                className="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs font-medium" style={{ background: tint(LIME, 16) }}>
+                <span className="flex items-center gap-2"><CheckCircle className="h-3.5 w-3.5 flex-shrink-0 text-primary" />{scanMsg}</span>
+                <button type="button" onClick={clearSelection} aria-label="Dismiss" className="p-1 text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
               </motion.div>
             )}
             {scanError && (
               <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                className="flex items-start justify-between gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-xs font-medium">
-                <div className="flex items-start gap-2"><AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />{scanError}</div>
-                <button type="button" onClick={clearSelection}><X className="w-3.5 h-3.5" /></button>
+                className="flex items-start justify-between gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400">
+                <span className="flex items-start gap-2"><AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />{scanError}</span>
+                <button type="button" onClick={clearSelection} aria-label="Dismiss" className="p-1 hover:opacity-70"><X className="h-3.5 w-3.5" /></button>
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Search row */}
+          {/* Search + camera */}
           <div className="flex gap-2">
-            <div className="relative flex-1 min-w-0">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-              <input type="text" value={searchQuery}
-                onChange={(e) => { setSearchQuery(e.target.value); setSelectedId(''); setScanMsg(''); setScanError(''); setDropdownOpen(true); }}
-                onFocus={() => setDropdownOpen(true)}
-                onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
-                placeholder="Search or scan a product…"
-                className="w-full h-11 pl-9 pr-8 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm font-medium focus:outline-none focus:border-green-500 transition-colors placeholder:text-gray-400" />
-              <AnimatePresence>
+            <div className="relative min-w-0 flex-1">
+              <div className={shell(false)}>
+                <Search className="mr-2.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                <input type="text" value={searchQuery}
+                  onChange={(e) => { setSearchQuery(e.target.value); setSelectedId(''); setScanMsg(''); setScanError(''); setDropdownOpen(true); }}
+                  onFocus={() => setDropdownOpen(true)}
+                  onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
+                  placeholder="Search name, brand or barcode"
+                  className={bare} />
                 {searchQuery && (
-                  <motion.button type="button" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.8 }} onClick={clearSelection}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-400 transition-colors">
-                    <X className="w-3.5 h-3.5" />
-                  </motion.button>
+                  <button type="button" onClick={clearSelection} aria-label="Clear search"
+                    className="-mr-1.5 ml-1 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground">
+                    <X className="h-4 w-4" />
+                  </button>
                 )}
-              </AnimatePresence>
+              </div>
 
-              {/* Dropdown — all products or filtered */}
+              {/* Dropdown */}
               <AnimatePresence>
                 {dropdownOpen && (
-                  <motion.div initial={{ opacity: 0, y: -6, scaleY: 0.95 }} animate={{ opacity: 1, y: 0, scaleY: 1 }}
-                    exit={{ opacity: 0, y: -6, scaleY: 0.95 }} transition={{ duration: 0.1 }}
-                    className="absolute top-full left-0 right-0 mt-1.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-2xl z-30 overflow-hidden origin-top">
+                  <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.12 }}
+                    className="absolute left-0 right-0 top-full z-30 mt-1.5 origin-top overflow-hidden rounded-2xl border border-border bg-popover shadow-xl">
                     {filteredProducts.length === 0 ? (
-                      <div className="px-4 py-3 text-xs text-gray-400 text-center">
-                        No products match "<span className="font-bold text-gray-600 dark:text-gray-300">{searchQuery}</span>"
+                      <div className="px-4 py-5 text-center text-sm text-muted-foreground">
+                        Nothing matches <span className="font-semibold text-foreground">“{searchQuery}”</span>
                       </div>
                     ) : (
                       <>
-                        <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/60">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                            {searchQuery ? `${filteredProducts.length} result${filteredProducts.length !== 1 ? 's' : ''}` : `All products · ${filteredProducts.length}`}
+                        <div className="border-b border-border bg-muted/50 px-3.5 py-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            {searchQuery
+                              ? `${filteredProducts.length} result${filteredProducts.length !== 1 ? 's' : ''}`
+                              : `All products · ${filteredProducts.length}`}
                           </p>
                         </div>
-                        <div className="max-h-56 overflow-y-auto divide-y divide-gray-50 dark:divide-gray-800">
-                          {filteredProducts.map((p) => (
-                            <button key={p.id} type="button"
-                              onMouseDown={() => selectProduct(p)}
-                              className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left">
-                              <div className="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                                {p.imageUrl
-                                  ? <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" />
-                                  : <Package className="w-3.5 h-3.5 text-gray-400" />}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-bold text-gray-900 dark:text-white truncate">{p.name}</p>
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  <p className="text-[10px] font-mono text-gray-400">{p.sku}</p>
-                                  {p.boxEnabled && <span className="text-[10px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded-full">Box ✓</span>}
+                        <div className="max-h-64 divide-y divide-border overflow-y-auto overscroll-contain">
+                          {filteredProducts.map((p) => {
+                            const st = stockMeta(p.quantity, p.lowStockAlert ?? 5);
+                            return (
+                              <button key={p.id} type="button" onMouseDown={() => selectProduct(p)}
+                                className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-accent active:bg-accent">
+                                <Thumb src={p.imageUrl} alt={p.name} size="h-11 w-11" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-semibold">{p.name}</p>
+                                  <div className="mt-0.5 flex items-center gap-2">
+                                    <p className="truncate font-mono text-[11px] text-muted-foreground">{p.sku}</p>
+                                    {p.boxEnabled && (
+                                      <span className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: tint(AMBER, 14), color: '#d97706' }}>Box</span>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                              <div className="text-right flex-shrink-0 space-y-0.5">
-                                <p className="text-xs font-black text-green-600 dark:text-green-400">₵{(p.piecePrice ?? p.sellingPrice ?? 0).toLocaleString()}/pc</p>
-                                {p.boxEnabled && p.boxPrice && (
-                                  <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400">₵{p.boxPrice.toLocaleString()}/box</p>
-                                )}
-                                <p className={`text-[10px] font-bold ${p.quantity === 0 ? 'text-red-500' : p.quantity < 5 ? 'text-yellow-500' : 'text-gray-400'}`}>
-                                  {p.quantity === 0 ? 'Out' : `${p.quantity} left`}
-                                </p>
-                              </div>
-                            </button>
-                          ))}
+                                <div className="flex-shrink-0 text-right">
+                                  <p className={`text-sm font-semibold tabular-nums ${MONEY}`}>{fmt(p.piecePrice ?? p.sellingPrice ?? 0)}</p>
+                                  <p className={`text-[11px] font-medium ${st.cls}`}>{st.label}</p>
+                                </div>
+                              </button>
+                            );
+                          })}
                         </div>
                       </>
                     )}
@@ -355,64 +412,72 @@ export function SaleForm({ products, submitting, successMessage, onSubmit }: Sal
               </AnimatePresence>
             </div>
 
-            {/* Camera button */}
-            <motion.button type="button" whileTap={{ scale: 0.92 }}
-              onClick={scanning ? stopCamera : startCamera}
-              className={`w-11 h-11 rounded-xl flex items-center justify-center text-white transition-colors flex-shrink-0 shadow-md ${
-                scanning ? 'bg-red-500 hover:bg-red-600 shadow-red-500/20' : 'bg-green-500 hover:bg-green-600 shadow-green-500/20'
-              }`}>
-              {scanning ? <X className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
+            <motion.button type="button" whileTap={{ scale: 0.94 }} onClick={scanning ? stopCamera : startCamera}
+              aria-label={scanning ? 'Close scanner' : 'Scan barcode'}
+              className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl shadow-sm transition-[filter] hover:brightness-110 sm:h-11 sm:w-11 ${
+                scanning ? 'bg-red-500 text-white' : 'bg-primary text-primary-foreground'}`}>
+              {scanning ? <X className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
             </motion.button>
           </div>
 
-          {/* Selected product + piece/box toggle */}
+          {/* External scanner */}
+          <div className="flex items-center justify-between gap-3 rounded-xl px-1">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Zap className={`h-3.5 w-3.5 ${externalEnabled ? 'text-primary' : ''}`} />
+              {externalEnabled ? (
+                <span className="flex items-center gap-1.5 font-medium text-foreground">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-70" style={{ background: LIME }} />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ background: LEAF }} />
+                  </span>
+                  Scanner gun listening
+                </span>
+              ) : 'USB / Bluetooth scanner gun'}
+            </div>
+            <Switch checked={externalEnabled} onChange={setExternalEnabled} label="External scanner" />
+          </div>
+
+          {/* Selected product + piece / box */}
           <AnimatePresence>
             {selectedProduct && (
-              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }} className="overflow-hidden space-y-2">
-
-                {/* Product card */}
-                <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white dark:bg-gray-900 border-2 border-green-500/20">
-                  <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                    {selectedProduct.imageUrl
-                      ? <img src={selectedProduct.imageUrl} alt={selectedProduct.name} className="w-full h-full object-cover" />
-                      : <Package className="w-3.5 h-3.5 text-green-500" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-gray-900 dark:text-white truncate">{selectedProduct.name}</p>
-                    <p className="text-[10px] font-mono text-gray-400">{selectedProduct.sku}</p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-black text-green-600 dark:text-green-400">₵{activePrice.toLocaleString()}</p>
-                    <p className={`text-[10px] font-bold ${selectedProduct.quantity === 0 ? 'text-red-500' : selectedProduct.quantity < 10 ? 'text-yellow-500' : 'text-gray-400'}`}>
-                      {selectedProduct.quantity === 0 ? 'Out of stock' : `${selectedProduct.quantity} in stock`}
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                className="space-y-2.5 overflow-hidden">
+                <div className="flex items-center gap-3 rounded-xl border bg-card p-3" style={{ borderColor: tint(LEAF, 45) }}>
+                  <Thumb src={selectedProduct.imageUrl} alt={selectedProduct.name} size="h-12 w-12" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{selectedProduct.name}</p>
+                    <p className={`text-[11px] font-medium ${stockMeta(remaining, selectedProduct.lowStockAlert ?? 5).cls}`}>
+                      {remaining <= 0 && selectedProduct.quantity > 0 ? 'All in cart' : stockMeta(remaining, selectedProduct.lowStockAlert ?? 5).label}
                     </p>
                   </div>
-                  <button type="button" onClick={clearSelection} className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0 ml-1">
-                    <X className="w-3.5 h-3.5" />
+                  <div className="text-right">
+                    <p className={`font-heading text-lg font-semibold tabular-nums ${MONEY}`}>{fmt(activePrice)}</p>
+                    <p className="text-[11px] text-muted-foreground">{saleType === 'box' && canSellBox ? 'per box' : 'per piece'}</p>
+                  </div>
+                  <button type="button" onClick={clearSelection} aria-label="Remove selection"
+                    className="-mr-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-red-500">
+                    <X className="h-4 w-4" />
                   </button>
                 </div>
 
-                {/* Piece / Box toggle — only show if box pricing exists */}
                 {canSellBox && (
-                  <div className="flex gap-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <button type="button" onClick={() => setSaleType('piece')}
-                      className={`flex-1 flex items-center justify-center gap-2 h-9 rounded-xl border-2 text-xs font-bold transition-all ${
+                      className={`flex h-12 flex-col items-center justify-center rounded-xl border text-xs font-semibold transition-all sm:h-11 ${
                         saleType === 'piece'
-                          ? 'bg-green-500 border-green-500 text-white shadow-md shadow-green-500/20'
-                          : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-green-400 hover:text-green-600'
-                      }`}>
-                      <Tag className="w-3.5 h-3.5" />
-                      Per Piece · ₵{(selectedProduct.piecePrice ?? selectedProduct.sellingPrice ?? 0).toLocaleString()}
+                          ? 'border-transparent bg-primary text-primary-foreground shadow-sm'
+                          : 'border-border bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground'}`}>
+                      <span className="flex items-center gap-1.5"><Tag className="h-3.5 w-3.5" /> Per piece</span>
+                      <span className="text-[11px] font-medium opacity-80">{fmt(piecePrice)}</span>
                     </button>
                     <button type="button" onClick={() => setSaleType('box')}
-                      className={`flex-1 flex items-center justify-center gap-2 h-9 rounded-xl border-2 text-xs font-bold transition-all ${
+                      className={`flex h-12 flex-col items-center justify-center rounded-xl border text-xs font-semibold transition-all sm:h-11 ${
                         saleType === 'box'
-                          ? 'bg-amber-500 border-amber-500 text-white shadow-md shadow-amber-500/20'
-                          : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-amber-400 hover:text-amber-600'
-                      }`}>
-                      <Package className="w-3.5 h-3.5" />
-                      Per Box ({selectedProduct.boxQty} pcs) · ₵{(selectedProduct.boxPrice ?? 0).toLocaleString()}
+                          ? 'border-transparent text-white shadow-sm'
+                          : 'border-border bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground'}`}
+                      style={saleType === 'box' ? { background: AMBER } : undefined}>
+                      <span className="flex items-center gap-1.5"><Package className="h-3.5 w-3.5" /> Per box · {selectedProduct.boxQty} pcs</span>
+                      <span className="text-[11px] font-medium opacity-80">{fmt(selectedProduct.boxPrice ?? 0)}</span>
                     </button>
                   </div>
                 )}
@@ -420,104 +485,166 @@ export function SaleForm({ products, submitting, successMessage, onSubmit }: Sal
             )}
           </AnimatePresence>
 
-          {/* Qty + Add */}
+          {/* Qty + add */}
           <div className="flex gap-2">
-            <input type="number" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="Qty" min="1"
-              className="w-20 h-11 px-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm font-black text-center focus:outline-none focus:border-green-500 transition-colors flex-shrink-0" />
-            <motion.button type="button" whileTap={{ scale: 0.96 }} onClick={addToCart}
+            <div className="flex h-12 w-[8.5rem] flex-shrink-0 items-stretch overflow-hidden rounded-xl border border-input bg-muted/40 sm:h-11">
+              <button type="button" aria-label="Decrease quantity" onClick={() => setQty(String(Math.max(1, qtyNum - 1)))}
+                className="flex w-10 flex-shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-muted">
+                <Minus className="h-4 w-4" />
+              </button>
+              <input type="number" inputMode="numeric" min="1" value={qty} onChange={(e) => setQty(e.target.value)} aria-label="Quantity"
+                className={`min-w-0 flex-1 border-x border-input bg-background text-center font-heading text-base font-semibold tabular-nums outline-none ${noSpin}`} />
+              <button type="button" aria-label="Increase quantity" onClick={() => setQty(String(qtyNum + 1))}
+                className="flex w-10 flex-shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground active:bg-muted">
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+            <motion.button type="button" whileTap={{ scale: 0.97 }} onClick={addToCart}
               disabled={!selectedId || selectedProduct?.quantity === 0}
-              className="flex-1 h-11 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-black text-sm flex items-center justify-center gap-1.5 disabled:opacity-30 disabled:cursor-not-allowed hover:opacity-80 transition-all">
-              <Plus className="w-4 h-4" /> Add to Cart
+              className="inline-flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border border-border bg-background px-3 text-sm font-semibold transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40 sm:h-11">
+              <Plus className="h-4 w-4 flex-shrink-0" />
+              <span className="truncate">{selectedProduct ? `Add · ${fmt(lineTotal)}` : 'Add to cart'}</span>
             </motion.button>
           </div>
         </div>
 
-        {/* Cart */}
-        <AnimatePresence>
+        {/* ── CART ── */}
+        <AnimatePresence initial={false}>
           {cart.length > 0 && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="rounded-2xl border-2 border-gray-200 dark:border-gray-800 overflow-hidden">
-              <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
-                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Cart · {cart.length} item{cart.length !== 1 ? 's' : ''}</span>
-                <span className="text-xs font-black text-green-600 dark:text-green-400">₵{cartTotal.toLocaleString()}</span>
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden rounded-2xl border border-border">
+              <div className="flex items-center justify-between border-b border-border bg-muted/50 px-4 py-2.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Cart · {cartCount} item{cartCount !== 1 ? 's' : ''}
+                </span>
+                <button type="button" onClick={() => setCart([])} className="text-[11px] font-medium text-muted-foreground transition-colors hover:text-red-500">
+                  Clear all
+                </button>
               </div>
-              <div className="max-h-52 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800">
+              <div className="max-h-72 divide-y divide-border overflow-y-auto overscroll-contain">
                 {cart.map((item) => (
-                  <motion.div key={`${item.productId}-${item.saleType}`} layout
-                    className="flex items-center gap-3 px-4 py-3 bg-white dark:bg-gray-950">
-                    {/* Piece/box badge */}
-                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full flex-shrink-0 ${
-                      item.saleType === 'box'
-                        ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                        : 'bg-green-500/10 text-green-600 dark:text-green-400'
-                    }`}>
-                      {item.saleType === 'box' ? `BOX×${item.boxQty}` : 'PC'}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-gray-900 dark:text-white truncate">{item.productName}</p>
-                      <p className="text-[10px] text-gray-400">{item.quantity} × ₵{item.unitPrice.toLocaleString()}</p>
+                  <motion.div key={`${item.productId}-${item.saleType}`} layout className="flex items-center gap-3 bg-card px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-semibold">{item.productName}</p>
+                        <span className="flex-shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                          style={item.saleType === 'box'
+                            ? { background: tint(AMBER, 16), color: '#d97706' }
+                            : { background: tint(LIME, 20) }}>
+                          {item.saleType === 'box' ? `BOX×${item.boxQty}` : 'PC'}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground tabular-nums">{fmt(item.unitPrice)} each</p>
                     </div>
-                    <p className="text-xs font-black text-green-600 dark:text-green-400 flex-shrink-0">₵{item.totalPrice.toLocaleString()}</p>
-                    <button type="button"
-                      onClick={() => setCart((c) => c.filter((i) => !(i.productId === item.productId && i.saleType === item.saleType)))}
-                      className="text-gray-300 hover:text-red-500 transition-colors flex-shrink-0">
-                      <Trash2 className="w-3.5 h-3.5" />
+
+                    <div className="flex h-9 flex-shrink-0 items-center overflow-hidden rounded-lg border border-input">
+                      <button type="button" aria-label="Decrease" onClick={() => bumpCart(item, -1)} disabled={item.quantity <= 1}
+                        className="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-30">
+                        <Minus className="h-3.5 w-3.5" />
+                      </button>
+                      <span className="w-7 text-center text-sm font-semibold tabular-nums">{item.quantity}</span>
+                      <button type="button" aria-label="Increase" onClick={() => bumpCart(item, 1)}
+                        className="flex h-full w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    <p className={`w-16 flex-shrink-0 text-right text-sm font-semibold tabular-nums ${MONEY}`}>{fmt(item.totalPrice)}</p>
+                    <button type="button" onClick={() => removeFromCart(item)} aria-label={`Remove ${item.productName}`}
+                      className="-mr-1.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-500">
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </motion.div>
                 ))}
               </div>
-              <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between">
-                <span className="text-xs font-black text-gray-700 dark:text-gray-300">Total</span>
-                <span className="text-base font-black text-green-600 dark:text-green-400">₵{cartTotal.toLocaleString()}</span>
+              <div className="flex items-center justify-between border-t border-border bg-muted/50 px-4 py-3">
+                <span className="text-sm font-semibold">Total</span>
+                <span className={`font-heading text-xl font-semibold tabular-nums ${MONEY}`}>{fmt(cartTotal)}</span>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Customer */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
-              <User className="w-3 h-3" /> Name <span className="text-[9px] font-normal normal-case ml-1 text-gray-400">optional</span>
-            </label>
-            <input type="text" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} placeholder="Customer name (optional)"
-              className="w-full h-11 px-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white font-medium focus:outline-none focus:border-green-500 transition-colors placeholder:text-gray-400" />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-1.5"><Phone className="w-3 h-3" /> Phone <span className="text-[9px] font-normal normal-case ml-1 text-gray-400">optional</span></label>
-            <input type="tel" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} placeholder="0241234567 (optional)"
-              className="w-full h-11 px-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white font-medium focus:outline-none focus:border-green-500 transition-colors placeholder:text-gray-400" />
-          </div>
+        {/* ── CUSTOMER (optional, collapsed by default so the till stays fast) ── */}
+        <div className="rounded-2xl border border-border">
+          <button type="button" onClick={() => setShowCustomer((v) => !v)} aria-expanded={showCustomer}
+            className="flex min-h-[3rem] w-full items-center justify-between gap-3 px-3.5 py-2.5 text-left">
+            <span className="flex min-w-0 items-center gap-2 text-[13px] font-medium">
+              <User className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+              <span className="truncate">{customer.name.trim() ? customer.name : 'Customer details'}</span>
+              <span className="flex-shrink-0 text-[11px] font-normal text-muted-foreground">Optional</span>
+            </span>
+            <ChevronDown className={`h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform ${showCustomer ? 'rotate-180' : ''}`} />
+          </button>
+
+          <AnimatePresence initial={false}>
+            {showCustomer && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden">
+                <div className="space-y-3 border-t border-border p-3.5">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-[13px] font-medium">Name</label>
+                      <div className={shell(false)}>
+                        <User className="mr-2.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                        <input type="text" value={customer.name} autoComplete="off"
+                          onChange={(e) => setCustomer({ ...customer, name: e.target.value })}
+                          placeholder="Walk-in customer" className={bare} />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-[13px] font-medium">Phone</label>
+                      <div className={shell(false)}>
+                        <Phone className="mr-2.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                        <input type="tel" inputMode="tel" value={customer.phone} autoComplete="off"
+                          onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
+                          placeholder="024 123 4567" className={bare} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {customer.phone.trim() && (
+                    <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3.5 py-3">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <MessageSquare className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-medium">Text the receipt</p>
+                          <p className="text-[11px] text-muted-foreground">You’re always notified automatically</p>
+                        </div>
+                      </div>
+                      <Switch checked={sendSMS} onChange={setSendSMS} label="Send SMS to customer" />
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="mb-1.5 block text-[13px] font-medium">Note</label>
+                    <div className={`${shell(false)} items-start py-2.5`}>
+                      <textarea value={customer.notes} rows={2}
+                        onChange={(e) => setCustomer({ ...customer, notes: e.target.value })}
+                        placeholder="Anything worth remembering about this sale"
+                        className="min-w-0 flex-1 resize-none bg-transparent text-base outline-none placeholder:text-muted-foreground sm:text-sm" />
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {/* SMS toggle — only show if customer phone is entered */}
-        {customer.phone && <div className="flex items-center justify-between px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-          <div className="flex items-center gap-2">
-            <MessageSquare className="w-3.5 h-3.5 text-gray-400" />
-            <div>
-              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Send SMS to Customer</span>
-              <p className="text-[10px] text-gray-400 mt-0.5">Admin notification is sent automatically</p>
-            </div>
-          </div>
-          <button type="button" onClick={() => setSendSMS(!sendSMS)}
-            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${sendSMS ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
-            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${sendSMS ? 'translate-x-4' : 'translate-x-0.5'}`} />
-          </button>
-        </div>}
-
-        <textarea value={customer.notes} onChange={(e) => setCustomer({ ...customer, notes: e.target.value })}
-          placeholder="Notes (optional)" rows={2}
-          className="w-full px-3.5 py-2.5 rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:border-green-500 transition-colors resize-none placeholder:text-gray-400" />
-
-        <motion.button type="submit" whileTap={{ scale: 0.97 }}
-          disabled={submitting || !cart.length}
-          className="w-full h-12 rounded-xl bg-green-500 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-sm flex items-center justify-center gap-2 transition-colors shadow-lg shadow-green-500/20">
-          {submitting
-            ? <><Loader2 className="w-4 h-4 animate-spin" /> Recording…</>
-            : <><CheckCircle className="w-4 h-4" /> Record Sale {cart.length > 0 && `· ${cart.length} item${cart.length > 1 ? 's' : ''}`}</>}
-        </motion.button>
+        {/* ── SUBMIT (sticks to the bottom of the screen on mobile) ── */}
+        <div className="sticky bottom-3 z-10">
+          <motion.button type="submit" whileTap={{ scale: 0.98 }} disabled={submitting || !cart.length}
+            className="inline-flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary px-6 text-[15px] font-semibold text-primary-foreground shadow-lg transition-[filter] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 sm:h-12 sm:text-sm">
+            {submitting ? (
+              <><Loader2 className="h-4 w-4 animate-spin" /> Recording sale…</>
+            ) : cart.length === 0 ? (
+              'Add an item to start a sale'
+            ) : (
+              <><CheckCircle className="h-4 w-4" /> Record sale · {fmt(cartTotal)}</>
+            )}
+          </motion.button>
+        </div>
       </form>
     </>
   );
 }
-

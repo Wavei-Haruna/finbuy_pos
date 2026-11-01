@@ -3,11 +3,10 @@
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { useBusiness } from '@/lib/business-context';
-import {
-  LogOut, User, Menu, Bell, ChevronDown, Building2
-} from 'lucide-react';
+import { LogOut, User, Menu, Bell, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
+import { cn } from '@/lib/utils';
 
 interface TopNavProps {
   onMenuClick: () => void;
@@ -29,69 +28,81 @@ export function TopNav({ onMenuClick }: TopNavProps) {
   const getPageInfo = () => {
     if (pathname.includes('/products'))   return { title: 'Products',     sub: 'Manage your inventory'   };
     if (pathname.includes('/sales'))      return { title: 'Record Sale',  sub: 'Log a new transaction'   };
+    if (pathname.includes('/services'))   return { title: 'Services',     sub: 'Repairs and jobs'        };
+    if (pathname.includes('/expenses'))   return { title: 'Expenses',     sub: 'Salaries and costs'      };
+    if (pathname.includes('/damages'))    return { title: 'Damages',      sub: 'Damaged and lost stock'  };
     if (pathname.includes('/alerts'))     return { title: 'Stock Alerts', sub: 'Low stock notifications' };
     if (pathname.includes('/reports'))    return { title: 'Reports',      sub: 'Analytics & insights'    };
     if (pathname.includes('/businesses')) return { title: 'Businesses',   sub: 'Manage your branches'    };
     if (pathname.includes('/users'))      return { title: 'Users',        sub: 'Team management'         };
     if (pathname.includes('/settings'))   return { title: 'Settings',     sub: 'System preferences'      };
-    return { title: 'Dashboard', sub: activeBusiness ? `Viewing ${activeBusiness.name}` : 'Overview' };
+    return { title: 'Overview', sub: 'Your business at a glance' };
   };
 
   const { title, sub } = getPageInfo();
+  const initial = user?.name?.charAt(0).toUpperCase() || 'U';
 
   return (
-    <header className="h-14 sm:h-16 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 px-4 sm:px-6 flex items-center justify-between gap-4 sticky top-0 z-30">
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-border bg-muted/80 px-4 backdrop-blur-md sm:h-16 sm:px-6">
 
       {/* Left: hamburger (mobile) + page title */}
-      <div className="flex items-center gap-3 min-w-0">
-        {/* Hamburger — mobile only */}
+      <div className="flex min-w-0 items-center gap-3">
         <button
           onClick={onMenuClick}
-          className="lg:hidden w-9 h-9 rounded-xl flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex-shrink-0"
+          aria-label="Open menu"
+          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-card hover:text-foreground lg:hidden"
         >
-          <Menu className="w-5 h-5" />
+          <Menu className="h-5 w-5" />
         </button>
 
-        {/* Page title */}
         <div className="min-w-0">
-          <h2 className="text-sm sm:text-base font-bold text-gray-900 dark:text-white leading-tight truncate">{title}</h2>
-          <p className="text-xs text-gray-400 dark:text-gray-500 hidden sm:block truncate">{sub}</p>
+          <h2 className="truncate font-heading text-[15px] font-semibold leading-tight text-foreground sm:text-base">
+            {title}
+          </h2>
+          <p className="hidden truncate text-xs text-muted-foreground sm:block">{sub}</p>
         </div>
       </div>
 
-      {/* Right: business pill + notifications + user menu */}
-      <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+      {/* Right: branch pill + notifications + user menu */}
+      <div className="flex flex-shrink-0 items-center gap-2 sm:gap-3">
 
-        {/* Active business pill — hidden on very small screens */}
+        {/* Active branch pill */}
         {activeBusiness && (
-          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-500/8 border border-green-500/15">
-            <Building2 className="w-3 h-3 text-green-500" />
-            <span className="text-xs font-bold text-green-600 dark:text-green-400 max-w-[120px] truncate">
+          <div className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 sm:flex">
+            <span className="h-1.5 w-1.5 rounded-full bg-[hsl(var(--brand-emerald))]" />
+            <span className="max-w-[140px] truncate text-xs font-bold text-foreground">
               {activeBusiness.name}
             </span>
           </div>
         )}
 
         {/* Notification bell */}
-        <button className="relative w-9 h-9 rounded-xl flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-          <Bell className="w-4 h-4" />
-          {/* Unread dot */}
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 border-2 border-white dark:border-gray-950" />
+        <button
+          aria-label="Notifications"
+          className="relative flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
+        >
+          <Bell className="h-4 w-4" />
+          <span className="absolute right-2 top-2 h-2 w-2 rounded-full border-2 border-muted bg-destructive" />
         </button>
 
         {/* User menu */}
         <div className="relative">
           <button
             onClick={() => setUserMenuOpen(!userMenuOpen)}
-            className="flex items-center gap-2 pl-2 pr-3 py-1.5 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            className="flex items-center gap-2 rounded-xl py-1.5 pl-1.5 pr-2 transition-colors hover:bg-card sm:pr-3"
           >
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center text-gray-900 font-black text-xs flex-shrink-0 shadow-sm">
-              {user?.name?.charAt(0).toUpperCase() || 'U'}
+            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary text-xs font-black text-primary-foreground">
+              {initial}
             </div>
-            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 hidden sm:block max-w-[100px] truncate">
+            <span className="hidden max-w-[110px] truncate text-sm font-semibold text-foreground sm:block">
               {user?.name}
             </span>
-            <ChevronDown className={`w-3.5 h-3.5 text-gray-400 hidden sm:block transition-transform duration-200 ${userMenuOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown
+              className={cn(
+                'hidden h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 sm:block',
+                userMenuOpen && 'rotate-180'
+              )}
+            />
           </button>
 
           <AnimatePresence>
@@ -101,39 +112,38 @@ export function TopNav({ onMenuClick }: TopNavProps) {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 6, scale: 0.97 }}
                 transition={{ duration: 0.15 }}
-                className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-xl shadow-black/10 dark:shadow-black/40 overflow-hidden z-50"
+                className="absolute right-0 top-full z-50 mt-2 w-60 origin-top-right overflow-hidden rounded-2xl border border-border bg-card shadow-xl shadow-black/10"
               >
-                {/* User info header */}
-                <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800">
+                {/* User info */}
+                <div className="border-b border-border px-4 py-3.5">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center text-gray-900 font-black text-sm flex-shrink-0">
-                      {user?.name?.charAt(0).toUpperCase() || 'U'}
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary text-sm font-black text-primary-foreground">
+                      {initial}
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{user?.name}</p>
-                      <p className="text-xs text-gray-400 truncate">{user?.email}</p>
+                      <p className="truncate text-sm font-bold text-foreground">{user?.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
                     </div>
-                  </div>
-                  <div className="mt-2 flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
-                    <span className="text-xs font-semibold text-green-600 dark:text-green-400 capitalize">{user?.role || 'admin'}</span>
                   </div>
                 </div>
 
                 {/* Actions */}
-                <div className="p-1">
-                  <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800/60">
-                    <User className="w-4 h-4 text-gray-400" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-gray-400">Signed in as</p>
-                      <p className="text-xs font-bold text-gray-700 dark:text-gray-200 capitalize">{user?.role || 'admin'}</p>
+                <div className="p-1.5">
+                  <div className="flex items-center gap-3 rounded-xl bg-muted px-3 py-2.5">
+                    <User className="h-4 w-4 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-muted-foreground">Signed in as</p>
+                      <p className="flex items-center gap-1.5 text-xs font-bold capitalize text-foreground">
+                        <span className="h-1.5 w-1.5 rounded-full bg-[hsl(var(--brand-emerald))]" />
+                        {user?.role || 'admin'}
+                      </p>
                     </div>
                   </div>
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                    className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-destructive transition-colors hover:bg-destructive/10"
                   >
-                    <LogOut className="w-4 h-4" />
+                    <LogOut className="h-4 w-4" />
                     Sign out
                   </button>
                 </div>

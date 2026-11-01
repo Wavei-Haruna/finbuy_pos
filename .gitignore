@@ -12,3 +12,8 @@ node_modules/
 .DS_Store
 .vercel
 .env*
+.env*
+service-account*.json
+firebase-adminsdk*.json
+*-firebase-adminsdk-*.json
+.env

@@ -1,28 +1,26 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { useBusiness } from '@/lib/business-context';
-import {
-  LayoutDashboard, Package, ShoppingCart, AlertCircle,
-  BarChart3, Users, Settings, LogOut, Building2, X, ChevronDown, Check, Banknote, Smartphone, PackageX
-} from 'lucide-react';
+import { Building2, X, ChevronDown, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
 
 const navigationItems = [
-  { label: 'Dashboard',    href: '/dashboard',            icon: LayoutDashboard, roles: ['admin', 'sales', 'manager'] },
-  { label: 'Products',     href: '/dashboard/products',   icon: Package,         roles: ['admin', 'sales', 'manager'] },
-  { label: 'Record Sale',  href: '/dashboard/sales',      icon: ShoppingCart,    roles: ['admin', 'sales'] },
-  { label: 'Services',     href: '/dashboard/services',   icon: Smartphone,      roles: ['admin', 'sales'] },
-  { label: 'Expenses',     href: '/dashboard/expenses',   icon: Banknote,        roles: ['admin', 'manager'] },
-  { label: 'Damages',      href: '/dashboard/damages',    icon: PackageX,        roles: ['admin', 'manager'] },
-  { label: 'Stock Alerts', href: '/dashboard/alerts',     icon: AlertCircle,     roles: ['admin', 'manager'] },
-  { label: 'Reports',      href: '/dashboard/reports',    icon: BarChart3,       roles: ['admin', 'manager'] },
-  { label: 'Businesses',   href: '/dashboard/businesses', icon: Building2,       roles: ['admin'] },
-  { label: 'Settings',     href: '/dashboard/settings',   icon: Settings,        roles: ['admin'] },
+  { label: 'Dashboard',    href: '/dashboard',            roles: ['admin', 'sales', 'manager'] },
+  { label: 'Products',     href: '/dashboard/products',   roles: ['admin', 'sales', 'manager'] },
+  { label: 'Record Sale',  href: '/dashboard/sales',      roles: ['admin', 'sales'] },
+  { label: 'Services',     href: '/dashboard/services',   roles: ['admin', 'sales'] },
+  { label: 'Expenses',     href: '/dashboard/expenses',   roles: ['admin', 'manager'] },
+  { label: 'Damages',      href: '/dashboard/damages',    roles: ['admin', 'manager'] },
+  { label: 'Stock Alerts', href: '/dashboard/alerts',     roles: ['admin', 'manager'] },
+  { label: 'Reports',      href: '/dashboard/reports',    roles: ['admin', 'manager'] },
+  { label: 'Businesses',   href: '/dashboard/businesses', roles: ['admin'] },
+  { label: 'Settings',     href: '/dashboard/settings',   roles: ['admin'] },
 ];
 
 interface SidebarProps {
@@ -41,47 +39,57 @@ function SidebarInner({ onClose }: { onClose: () => void }) {
   );
 
   return (
-    <aside className="w-64 h-full bg-gradient-to-b from-gray-900 via-gray-900 to-gray-950 border-r border-gray-800/50 flex flex-col relative overflow-hidden">
-      {/* Ambient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/5 via-transparent to-transparent pointer-events-none" />
-
+    <aside className="flex h-full w-[232px] flex-col border-r border-white/5 bg-[hsl(var(--brand-deep))] text-white">
       {/* ── LOGO ── */}
-      <div className="p-5 border-b border-gray-800/50 relative z-10 flex items-center justify-between">
+      <div className="flex items-center justify-between px-5 pb-4 pt-6">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-lg flex items-center justify-center shadow-lg shadow-yellow-500/20 flex-shrink-0">
-            <span className="text-gray-900 font-black text-lg">A</span>
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[10px] bg-white p-1">
+            <Image
+              src="/logo.png"
+              alt="Kashora"
+              width={28}
+              height={28}
+              className="h-full w-full object-contain"
+              priority
+            />
           </div>
-          <div>
-            <h1 className="text-xl font-black text-white leading-tight">Admin</h1>
-            <p className="text-[10px] text-gray-400 tracking-[0.15em] font-semibold uppercase">Dashboard</p>
-          </div>
+          <span className="font-heading text-[22px] font-semibold leading-none tracking-tight text-white">
+            Kashora
+          </span>
         </div>
         <button
           onClick={onClose}
-          className="lg:hidden w-7 h-7 rounded-lg bg-gray-800 flex items-center justify-center text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+          aria-label="Close menu"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-white/60 transition-colors hover:bg-white/10 hover:text-white lg:hidden"
         >
-          <X className="w-4 h-4" />
+          <X className="h-4 w-4" />
         </button>
       </div>
 
-      {/* ── BUSINESS SWITCHER ── */}
+      {/* ── BRANCH SWITCHER ── */}
       {businesses.length > 0 && (
-        <div className="px-3 pt-4 relative z-10">
-          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] px-1 mb-1.5">Active Branch</p>
+        <div className="px-3 pb-3">
           <button
             onClick={() => setBizDropOpen(!bizDropOpen)}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-gray-800/60 border border-gray-700/50 hover:border-green-500/40 transition-all duration-200 group"
+            className="flex w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5 transition-colors hover:border-[hsl(var(--brand-lime)/0.4)]"
           >
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white text-xs font-black flex-shrink-0 shadow-sm">
+            <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--brand-lime))] text-xs font-black text-[hsl(var(--brand-deep))]">
               {activeBusiness?.name.charAt(0) ?? '?'}
             </div>
-            <div className="flex-1 min-w-0 text-left">
-              <p className="text-xs font-bold text-white truncate leading-tight">
+            <div className="min-w-0 flex-1 text-left">
+              <p className="truncate text-[13px] font-bold leading-tight text-white">
                 {activeBusiness?.name ?? 'Select business'}
               </p>
-              <p className="text-[10px] font-mono text-gray-400">{activeBusiness?.businessId ?? '—'}</p>
+              <p className="font-mono text-[10px] text-white/50">
+                {activeBusiness?.businessId ?? '—'}
+              </p>
             </div>
-            <ChevronDown className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform duration-200 ${bizDropOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown
+              className={cn(
+                'h-3.5 w-3.5 flex-shrink-0 text-white/50 transition-transform duration-200',
+                bizDropOpen && 'rotate-180'
+              )}
+            />
           </button>
 
           <AnimatePresence>
@@ -91,39 +99,45 @@ function SidebarInner({ onClose }: { onClose: () => void }) {
                 animate={{ opacity: 1, y: 0, scaleY: 1 }}
                 exit={{ opacity: 0, y: -4, scaleY: 0.95 }}
                 transition={{ duration: 0.15 }}
-                className="mt-1 rounded-xl border border-gray-700/50 bg-gray-900 overflow-hidden shadow-xl z-20 origin-top"
+                className="mt-1 origin-top overflow-hidden rounded-xl border border-white/10 bg-[hsl(var(--card))] shadow-xl"
               >
-                <div className="p-1 max-h-44 overflow-y-auto">
+                <div className="max-h-44 overflow-y-auto p-1">
                   {businesses.map((biz) => {
                     const isActive = activeBusiness?.id === biz.id;
                     return (
                       <button
                         key={biz.id}
-                        onClick={() => { setActiveBusiness(biz); setBizDropOpen(false); }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors ${
+                        onClick={() => {
+                          setActiveBusiness(biz);
+                          setBizDropOpen(false);
+                        }}
+                        className={cn(
+                          'flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors',
                           isActive
-                            ? 'bg-green-500/15 text-green-400'
-                            : 'hover:bg-gray-800 text-gray-300'
-                        }`}
+                            ? 'bg-white/10 text-white'
+                            : 'text-white/70 hover:bg-white/5 hover:text-white'
+                        )}
                       >
-                        <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-black flex-shrink-0 ${
-                          isActive ? 'bg-green-500 text-white' : 'bg-gray-700 text-gray-400'
-                        }`}>
-                          {biz.name.charAt(0)}
-                        </div>
-                        <span className="text-xs font-semibold truncate flex-1">{biz.name}</span>
-                        {isActive && <Check className="w-3 h-3 text-green-400 flex-shrink-0" />}
+                        <span className="flex-1 truncate text-[13px] font-semibold">
+                          {biz.name}
+                        </span>
+                        {isActive && (
+                          <Check className="h-3.5 w-3.5 flex-shrink-0 text-[hsl(var(--brand-lime))]" />
+                        )}
                       </button>
                     );
                   })}
                 </div>
-                <div className="border-t border-gray-800 p-1">
+                <div className="border-t border-white/10 p-1">
                   <Link
                     href="/dashboard/businesses"
-                    onClick={() => { setBizDropOpen(false); onClose(); }}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-bold text-green-400 hover:bg-green-500/10 transition-colors w-full"
+                    onClick={() => {
+                      setBizDropOpen(false);
+                      onClose();
+                    }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[11px] font-bold text-[hsl(var(--brand-lime))] transition-colors hover:bg-white/5"
                   >
-                    <Building2 className="w-3 h-3" />
+                    <Building2 className="h-3 w-3" />
                     Add New Business
                   </Link>
                 </div>
@@ -133,125 +147,59 @@ function SidebarInner({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {/* ── NAV LABEL ── */}
-      <div className="px-4 pt-5 pb-2 relative z-10">
-        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em]">Menu</p>
-      </div>
-
-      {/* ── NAV ITEMS ── */}
-      <motion.nav
-        initial="hidden"
-        animate="visible"
-        variants={{ visible: { transition: { staggerChildren: 0.04, delayChildren: 0.05 } } }}
-        className="flex-1 overflow-y-auto px-3 space-y-0.5 relative z-10 pb-2"
-      >
+      {/* ── NAV ── */}
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-2">
         {visibleItems.map((item) => {
-          const Icon = item.icon;
           const isActive =
             pathname === item.href ||
             (item.href !== '/dashboard' && pathname.startsWith(item.href + '/'));
-          const isBiz = item.href === '/dashboard/businesses';
-          const isExpenses = item.href === '/dashboard/expenses';
-          const isServices = item.href === '/dashboard/services';
-          const isDamages = item.href === '/dashboard/damages';
 
           return (
-            <motion.div
+            <Link
               key={item.href}
-              variants={{
-                hidden: { x: -14, opacity: 0 },
-                visible: { x: 0, opacity: 1, transition: { type: 'spring', stiffness: 300, damping: 24 } },
-              }}
+              href={item.href}
+              onClick={onClose}
+              className={cn(
+                'relative flex items-center rounded-xl px-3 py-2.5 text-[15px] transition-colors duration-200',
+                isActive
+                  ? 'font-bold text-white'
+                  : 'font-medium text-white/60 hover:bg-white/[0.05] hover:text-white'
+              )}
             >
-              <Link
-                href={item.href}
-                onClick={onClose}
-                className={cn(
-                  'group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 relative overflow-hidden',
-                  isActive ? 'text-white' : 'text-gray-400 hover:text-white'
-                )}
-              >
-                {/* Active bg */}
-                {isActive && (
-                  <motion.div
-                    layoutId="activeTab"
-                    className="absolute inset-0 bg-gradient-to-r from-yellow-500/20 to-yellow-600/10 rounded-xl"
-                    transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                  />
-                )}
-                {/* Left accent bar */}
-                {isActive && (
-                  <div className="absolute left-0 top-1.5 bottom-1.5 w-[3px] bg-gradient-to-b from-yellow-400 to-yellow-600 rounded-r-full" />
-                )}
-                {/* Hover bg */}
-                <div className="absolute inset-0 bg-gray-800/40 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
-
-                {/* Icon */}
-                <div className="relative z-10 flex-shrink-0">
-                  <Icon className={cn(
-                    'w-[18px] h-[18px] transition-all duration-200',
-                    isActive
-                      ? 'text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.5)]'
-                      : isBiz
-                        ? 'text-green-400 group-hover:text-green-300'
-                        : isExpenses
-                          ? 'text-red-400 group-hover:text-red-300'
-                          : isServices
-                            ? 'text-indigo-400 group-hover:text-indigo-300'
-                            : isDamages
-                              ? 'text-orange-400 group-hover:text-orange-300'
-                              : 'text-gray-400 group-hover:text-gray-300'
-                  )} />
-                </div>
-
-                {/* Label */}
-                <span className={cn(
-                  'relative z-10 text-sm font-medium flex-1 transition-all duration-200',
-                  isActive ? 'font-semibold' : 'group-hover:translate-x-0.5'
-                )}>
-                  {item.label}
-                </span>
-
-                {/* Green dot for Businesses when not active */}
-                {isBiz && !isActive && (
-                  <span className="relative z-10 w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0" />
-                )}
-              </Link>
-            </motion.div>
+              {isActive && (
+                <motion.div
+                  layoutId="activeTab"
+                  className="absolute inset-0 rounded-xl bg-white/[0.09]"
+                  transition={{ type: 'spring', stiffness: 350, damping: 32 }}
+                />
+              )}
+              <span className="relative z-10">{item.label}</span>
+            </Link>
           );
         })}
-      </motion.nav>
+      </nav>
 
       {/* ── USER + LOGOUT ── */}
-      <motion.div
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.5, delay: 0.3 }}
-        className="p-3 border-t border-gray-800/50 relative z-10 space-y-2"
-      >
-        <div className="px-3 py-2.5 bg-gray-800/40 rounded-xl border border-gray-700/40 hover:border-yellow-500/20 transition-all duration-300">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center text-gray-900 font-black text-sm shadow-lg shadow-yellow-500/20 flex-shrink-0">
-              {user?.name?.charAt(0).toUpperCase() || 'U'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-white truncate leading-tight">{user?.name || 'User'}</p>
-              <p className="text-xs text-gray-400 capitalize flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-                {user?.role || 'staff'}
-              </p>
-            </div>
+      <div className="space-y-3 p-3 pb-4">
+        <div className="flex items-center gap-3 px-2">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-[hsl(var(--brand-lime))] text-sm font-black text-[hsl(var(--brand-deep))]">
+            {user?.name?.charAt(0).toUpperCase() || 'U'}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-bold leading-tight text-white">
+              {user?.name || 'User'}
+            </p>
+            <p className="text-xs capitalize text-white/50">{user?.role || 'staff'}</p>
           </div>
         </div>
 
         <button
           onClick={logout}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-gray-400 hover:text-white hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-all duration-200 group"
+          className="w-full rounded-xl border border-[hsl(var(--brand-lime)/0.6)] py-2.5 text-sm font-bold text-[hsl(var(--brand-lime))] transition-colors hover:bg-[hsl(var(--brand-lime)/0.1)]"
         >
-          <LogOut className="w-4 h-4 group-hover:text-red-400 transition-colors flex-shrink-0" />
-          <span className="text-sm font-medium">Logout</span>
+          Log out
         </button>
-      </motion.div>
+      </div>
     </aside>
   );
 }
@@ -260,7 +208,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   return (
     <>
       {/* Desktop: always visible */}
-      <div className="hidden lg:flex w-64 flex-shrink-0 h-screen sticky top-0">
+      <div className="sticky top-0 hidden h-screen w-[232px] flex-shrink-0 lg:flex">
         <SidebarInner onClose={() => {}} />
       </div>
 
@@ -274,14 +222,14 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               onClick={onClose}
-              className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
             />
             <motion.div
-              initial={{ x: -280 }}
+              initial={{ x: -260 }}
               animate={{ x: 0 }}
-              exit={{ x: -280 }}
+              exit={{ x: -260 }}
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-              className="lg:hidden fixed left-0 top-0 bottom-0 w-64 z-50 flex"
+              className="fixed bottom-0 left-0 top-0 z-50 flex lg:hidden"
             >
               <SidebarInner onClose={onClose} />
             </motion.div>
